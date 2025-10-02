@@ -4,7 +4,7 @@
 }:
 python3Packages.buildPythonPackage rec {
   pname = "fhaviary";
-  version = "0.22.1";
+  version = "0.24.3";
 
   format = "pyproject";
 
@@ -12,12 +12,13 @@ python3Packages.buildPythonPackage rec {
     owner = "Future-House";
     repo = "aviary";
     rev = "refs/tags/v${version}";
-    hash = "sha256-ZMJkcp5P1VS/ryKgxCEYFT1wdoBxhX0oeDnruOvPvCk=";
+    hash = "sha256-1YLGMI4jGpqSLWxwy2zw2JFQwrWHuRs64yXKRLDEHoM=";
   };
 
   propagatedBuildInputs = with python3Packages; [
     docstring-parser
     httpx
+    httpx-aiohttp
     pydantic
     setuptools
     setuptools-scm

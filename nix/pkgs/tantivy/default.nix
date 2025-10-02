@@ -4,7 +4,7 @@
 }:
 python3Packages.buildPythonPackage rec {
   pname = "tantivy";
-  version = "0.24.0";
+  version = "0.25.0";
 
   format = "pyproject";
 
@@ -12,13 +12,13 @@ python3Packages.buildPythonPackage rec {
     owner = "quickwit-oss";
     repo = "tantivy-py";
     rev = version;
-    hash = "sha256-ZwmhOkNvKZaFPk7swxm+T3VxI7LlWDq//JjiLT23o8s=";
+    hash = "sha256-ZVQOzKojBf7yNkgiOV4huNnuxCmiFwJb610sD4M2/MU=";
   };
 
   cargoDeps = pkgs.rustPlatform.fetchCargoVendor {
     inherit src;
     name = "${pname}-${version}";
-    hash = "sha256-7QHUKOUhPQy+tc1JEB/+MGsPy8LKej5TSScw5LYXZlw=";
+    hash = "sha256-/OADcVm01PbHp3bcw62Zt6+9ZmT96Bic+EBbPUhdoOI=";
   };
 
   nativeBuildInputs = with pkgs.rustPlatform; [

@@ -23,10 +23,23 @@
             fhlmi = import ./nix/pkgs/fhlmi { inherit pkgs python3Packages; };
             fhaviary = import ./nix/pkgs/fhaviary { inherit pkgs python3Packages; };
             tantivy = import ./nix/pkgs/tantivy { inherit pkgs python3Packages; };
-            litellm = super.litellm.overridePythonAttrs (old: {
-              propagatedBuildInputs =
-                (old.propagatedBuildInputs or [ ]) ++ (old.optional-dependencies.proxy or [ ]);
-            });
+            litellm = super.litellm.overridePythonAttrs (
+              old:
+              let
+                version = "1.74.9-stable";
+              in
+              {
+                inherit version;
+                src = pkgs.fetchFromGitHub {
+                  owner = "BerriAI";
+                  repo = "litellm";
+                  rev = "refs/tags/v${version}";
+                  hash = "sha256-SGZwt2jzAQbOMlvudqPWat281su6OwT7JG2CNSMjL3A=";
+                };
+                propagatedBuildInputs =
+                  (old.propagatedBuildInputs or [ ]) ++ (old.optional-dependencies.proxy or [ ]);
+              }
+            );
           };
         };
         python3Packages = python.pkgs;
