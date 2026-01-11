@@ -4,6 +4,11 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+
+    papis = {
+      url = "github:papis/papis";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -11,6 +16,7 @@
       self,
       nixpkgs,
       flake-utils,
+      papis,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
@@ -22,24 +28,7 @@
             paper-qa-pypdf = import ./nix/pkgs/paper-qa-pypdf { inherit pkgs python3Packages; };
             fhlmi = import ./nix/pkgs/fhlmi { inherit pkgs python3Packages; };
             fhaviary = import ./nix/pkgs/fhaviary { inherit pkgs python3Packages; };
-            tantivy = import ./nix/pkgs/tantivy { inherit pkgs python3Packages; };
-            litellm = super.litellm.overridePythonAttrs (
-              old:
-              let
-                version = "1.74.9-stable";
-              in
-              {
-                inherit version;
-                src = pkgs.fetchFromGitHub {
-                  owner = "BerriAI";
-                  repo = "litellm";
-                  rev = "refs/tags/v${version}";
-                  hash = "sha256-SGZwt2jzAQbOMlvudqPWat281su6OwT7JG2CNSMjL3A=";
-                };
-                propagatedBuildInputs =
-                  (old.propagatedBuildInputs or [ ]) ++ (old.optional-dependencies.proxy or [ ]);
-              }
-            );
+            papis = papis.packages."${system}".default;
           };
         };
         python3Packages = python.pkgs;
@@ -54,33 +43,31 @@
 
             src = ./.;
 
-            build-system = with python3Packages; [ hatchling ];
+            build-system = [ python3Packages.hatchling ];
 
-            buildInputs = with python3Packages; [
-              papis
+            buildInputs = [
+              python3Packages.papis
             ];
 
-            dependencies =
-              with python3Packages;
-              [
-                paper-qa
-                click-default-group
-                rich
-              ]
-              ++ paper-qa.optional-dependencies.paper-qa-pypdf;
+            dependencies = [
+              python3Packages.paper-qa
+              python3Packages.click-default-group
+              python3Packages.rich
+            ]
+            ++ python3Packages.paper-qa.optional-dependencies.paper-qa-pypdf;
 
             pythonImportsCheck = [ "papis_ask" ];
 
-            # nativeCheckInputs = with python3Packages; [
-            #   pytestCheckHook
-            #   pytest-asyncio
-            #   pytest-mock # TODO: needed?
+            # nativeCheckInputs = [
+            #   python3Packages.pytestCheckHook
+            #   python3Packages.pytest-asyncio
+            #   python3Packages.pytest-mock # TODO: needed?
             # ];
 
             meta = {
               description = "Use AI to search your Papis library";
               homepage = "https://papis.readthedocs.io/";
-              license = with pkgs.lib.licenses; gpl3Plus;
+              license = pkgs.lib.licenses.gpl3Plus;
               maintainers = [
                 {
                   name = "Julian Hauser";
@@ -95,7 +82,7 @@
         devShells.default = pkgs.mkShell {
           buildInputs = [
             python
-            pkgs.papis
+            python3Packages.papis
             self.packages.${system}.papis-ask
           ];
           shellHook = ''
