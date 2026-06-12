@@ -31,6 +31,11 @@ def create_paper_qa_settings():
     settings.llm = papis.config.getstring("llm", SECTION_NAME)
     settings.summary_llm = papis.config.getstring("summary-llm", SECTION_NAME)
     settings.embedding = papis.config.getstring("embedding", SECTION_NAME)
+    # OpenAI-compatible local embedding servers (e.g. llama.cpp) return HTTP 500
+    # on the `encoding_format: null` that LiteLLM sends by default. Force a valid
+    # value for openai/ embeddings (harmless elsewhere, so scoped to that prefix).
+    if settings.embedding.startswith("openai/"):
+        settings.embedding_config = {"kwargs": {"encoding_format": "float"}}
     settings.answer.answer_max_sources = (
         papis.config.getint("max-sources", SECTION_NAME)
         or DEFAULTS[SECTION_NAME]["max-sources"]  # TODO: redundancy
