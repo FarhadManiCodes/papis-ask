@@ -335,7 +335,7 @@ def query_cmd(
     docs_index = get_index()
 
     if docs_index:
-        answer = docs_index.query(query, settings=settings)
+        answer = asyncio.run(docs_index.aquery(query, settings=settings))
 
         if output == "json":
             output = to_json_output(answer)
