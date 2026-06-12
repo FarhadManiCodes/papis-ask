@@ -8,6 +8,11 @@ DEFAULTS: PapisConfigType = {
         "evidence-k": 10,
         "max-sources": 5,
         "answer-length": "about 200 words, but can be longer",
+        # Vision LLM for multimodal enrichment (describing figures/equations/
+        # tables during indexing). Must be a multimodal model; use a provider
+        # prefix that is NOT openai/ when OPENAI_API_BASE points at a local
+        # embedding server, or the call will be misrouted there.
+        "enrichment-llm": "gemini/gemini-2.5-flash",
         "context": True,
         "excerpt": False,
         "output": "terminal",
@@ -38,4 +43,9 @@ def create_paper_qa_settings():
         "answer-length", SECTION_NAME
     )
     settings.parsing.use_doc_details = False
+    # Multimodal enrichment is ON by default in paper-qa (CalVer); override the
+    # enrichment LLM so it doesn't fall back to the gpt-4o default.
+    settings.parsing.enrichment_llm = papis.config.getstring(
+        "enrichment-llm", SECTION_NAME
+    )
     return settings
