@@ -84,6 +84,9 @@
             python
             python3Packages.papis
             self.packages.${system}.papis-ask
+            python3Packages.pytest
+            python3Packages.pytest-asyncio
+            python3Packages.pytest-mock
           ];
           shellHook = ''
             export PYTHONPATH="$(pwd):$PYTHONPATH"
