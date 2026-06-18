@@ -186,11 +186,45 @@ def get_index():
     try:
         if file.exists():
             with open(file, "rb") as f:
-                return pickle.load(f)
+                docs = pickle.load(f)
+            if _migrate_index(docs):
+                save_index(docs)
+            return docs
         return None
     except (OSError, pickle.PickleError) as e:
         logger.error(f"Failed to load index: {e}")
         raise
+
+
+def _migrate_index(docs: Any) -> bool:
+    """Migrate old pickled index objects to be compatible with the current
+    paper-qa version. Adds missing fields that didn't exist in older versions.
+
+    Returns True if any migration was performed.
+    """
+    from paperqa.types import Text as TextType
+
+    missing_fields: dict[str, object] = {
+        name: field.get_default(call_default_factory=True)
+        for name, field in TextType.model_fields.items()
+        if not field.is_required() and field.default_factory is not None
+    }
+    if not missing_fields:
+        return False
+
+    migrated = 0
+    for text in docs.texts:
+        for field_name, default_value in missing_fields.items():
+            if not hasattr(text, field_name):
+                object.__setattr__(text, field_name, default_value)
+                migrated += 1
+    if migrated:
+        logger.info(
+            "Migrated %d missing field(s) on old index objects for "
+            "compatibility with paper-qa current.",
+            migrated,
+        )
+    return migrated > 0
 
 
 # NOTE: no types because we'd have to globally import Docs
