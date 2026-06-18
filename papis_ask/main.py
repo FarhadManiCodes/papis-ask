@@ -357,6 +357,23 @@ def query_cmd(
         f"Starting 'ask' with query={query}, output={output}, evidence_k={evidence_k}, max_sources={max_sources}, answer_length={answer_length}, context={context}, excerpt={excerpt} "
     )
 
+    asyncio.run(
+        _query_async(
+            query, output, evidence_k, max_sources, answer_length, context, excerpt
+        )
+    )
+
+
+async def _query_async(
+    query: str,
+    output: str,
+    evidence_k: int,
+    max_sources: int,
+    answer_length: str,
+    context: bool,
+    excerpt: bool,
+) -> None:
+    """Async implementation of query command."""
     settings = create_paper_qa_settings()
     settings.answer.answer_max_sources = max_sources
     settings.answer.evidence_k = evidence_k
@@ -369,7 +386,7 @@ def query_cmd(
     docs_index = get_index()
 
     if docs_index:
-        answer = docs_index.query(query, settings=settings)
+        answer = await docs_index.aquery(query, settings=settings)
 
         if output == "json":
             output = to_json_output(answer)
