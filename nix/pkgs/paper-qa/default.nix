@@ -4,7 +4,7 @@
 }:
 python3Packages.buildPythonPackage rec {
   pname = "paper-qa";
-  version = "2026.01.05";
+  version = "2026.03.18";
 
   format = "pyproject";
 
@@ -12,7 +12,7 @@ python3Packages.buildPythonPackage rec {
     owner = "Future-House";
     repo = "${pname}";
     rev = "refs/tags/v${version}";
-    hash = "sha256-Cb/OPssQU2crONycYJnl2e56o6qwFXfrwpLZWpH88GY=";
+    hash = "sha256-DW8aiiDUe4C7tOAfaMJ2I6xRBj01N+sAARpsWFusJQM=";
   };
 
   propagatedBuildInputs = with python3Packages; [
@@ -22,6 +22,7 @@ python3Packages.buildPythonPackage rec {
     fhaviary
     html2text
     httpx
+    httpx-aiohttp
     numpy
     pybtex
     pydantic-settings

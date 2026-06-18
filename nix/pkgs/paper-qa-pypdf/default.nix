@@ -5,13 +5,13 @@
 python3Packages.buildPythonPackage rec {
   pname = "paper-qa-pypdf";
   format = "pyproject";
-  version = "2026.01.05";
+  version = "2026.03.18";
 
   src = pkgs.fetchFromGitHub {
     owner = "Future-House";
     repo = "paper-qa";
     rev = "refs/tags/v${version}";
-    hash = "sha256-Cb/OPssQU2crONycYJnl2e56o6qwFXfrwpLZWpH88GY=";
+    hash = "sha256-DW8aiiDUe4C7tOAfaMJ2I6xRBj01N+sAARpsWFusJQM=";
   };
 
   sourceRoot = "source/packages/paper-qa-pypdf";
