@@ -186,11 +186,45 @@ def get_index():
     try:
         if file.exists():
             with open(file, "rb") as f:
-                return pickle.load(f)
+                docs = pickle.load(f)
+            if _migrate_index(docs):
+                save_index(docs)
+            return docs
         return None
     except (OSError, pickle.PickleError) as e:
         logger.error(f"Failed to load index: {e}")
         raise
+
+
+def _migrate_index(docs: Any) -> bool:
+    """Migrate old pickled index objects to be compatible with the current
+    paper-qa version. Adds missing fields that didn't exist in older versions.
+
+    Returns True if any migration was performed.
+    """
+    from paperqa.types import Text as TextType
+
+    missing_fields: dict[str, object] = {
+        name: field.get_default(call_default_factory=True)
+        for name, field in TextType.model_fields.items()
+        if not field.is_required() and field.default_factory is not None
+    }
+    if not missing_fields:
+        return False
+
+    migrated = 0
+    for text in docs.texts:
+        for field_name, default_value in missing_fields.items():
+            if not hasattr(text, field_name):
+                object.__setattr__(text, field_name, default_value)
+                migrated += 1
+    if migrated:
+        logger.info(
+            "Migrated %d missing field(s) on old index objects for "
+            "compatibility with paper-qa current.",
+            migrated,
+        )
+    return migrated > 0
 
 
 # NOTE: no types because we'd have to globally import Docs
@@ -323,6 +357,23 @@ def query_cmd(
         f"Starting 'ask' with query={query}, output={output}, evidence_k={evidence_k}, max_sources={max_sources}, answer_length={answer_length}, context={context}, excerpt={excerpt} "
     )
 
+    asyncio.run(
+        _query_async(
+            query, output, evidence_k, max_sources, answer_length, context, excerpt
+        )
+    )
+
+
+async def _query_async(
+    query: str,
+    output: str,
+    evidence_k: int,
+    max_sources: int,
+    answer_length: str,
+    context: bool,
+    excerpt: bool,
+) -> None:
+    """Async implementation of query command."""
     settings = create_paper_qa_settings()
     settings.answer.answer_max_sources = max_sources
     settings.answer.evidence_k = evidence_k
@@ -335,7 +386,7 @@ def query_cmd(
     docs_index = get_index()
 
     if docs_index:
-        answer = asyncio.run(docs_index.aquery(query, settings=settings))
+        answer = await docs_index.aquery(query, settings=settings)
 
         if output == "json":
             output = to_json_output(answer)

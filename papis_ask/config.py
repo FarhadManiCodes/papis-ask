@@ -1,5 +1,6 @@
 import papis.config
 from papis.config import PapisConfigType
+from papis.exceptions import DefaultSettingValueMissing
 
 SECTION_NAME = "ask"
 
@@ -27,27 +28,31 @@ DEFAULTS: PapisConfigType = {
 papis.config.register_default_settings(DEFAULTS)
 
 
+def _get_optional_string(key: str) -> str | None:
+    """Get a string config value, returning None if not set."""
+    try:
+        return papis.config.getstring(key, SECTION_NAME)
+    except DefaultSettingValueMissing:
+        return None
+
+
 def create_paper_qa_settings():
     from paperqa import Settings
 
     settings = Settings()
 
-    settings.llm = papis.config.getstring("llm", SECTION_NAME)
-    settings.summary_llm = papis.config.getstring("summary-llm", SECTION_NAME)
-    settings.embedding = papis.config.getstring("embedding", SECTION_NAME)
+    settings.llm = _get_optional_string("llm")
+    settings.summary_llm = _get_optional_string("summary-llm")
+    settings.embedding = _get_optional_string("embedding")
     # OpenAI-compatible local embedding servers (e.g. llama.cpp) return HTTP 500
     # on the `encoding_format: null` that LiteLLM sends by default. Force a valid
     # value for openai/ embeddings (harmless elsewhere, so scoped to that prefix).
-    if settings.embedding.startswith("openai/"):
+    if settings.embedding and settings.embedding.startswith("openai/"):
         settings.embedding_config = {"kwargs": {"encoding_format": "float"}}
-    settings.answer.answer_max_sources = (
-        papis.config.getint("max-sources", SECTION_NAME)
-        or DEFAULTS[SECTION_NAME]["max-sources"]  # TODO: redundancy
+    settings.answer.answer_max_sources = papis.config.getint(
+        "max-sources", SECTION_NAME
     )
-    settings.answer.evidence_k = (
-        papis.config.getint("evidence-k", SECTION_NAME)
-        or DEFAULTS[SECTION_NAME]["evidence-k"]  # TODO: redundancy
-    )
+    settings.answer.evidence_k = papis.config.getint("evidence-k", SECTION_NAME)
     settings.answer.answer_length = papis.config.getstring(
         "answer-length", SECTION_NAME
     )
