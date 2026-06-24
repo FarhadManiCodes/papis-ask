@@ -8,6 +8,10 @@ DEFAULTS: PapisConfigType = {
         "evidence-k": 10,
         "max-sources": 5,
         "answer-length": "about 200 words, but can be longer",
+        # Chunking in characters (defaults match paper-qa). Changing either
+        # requires a full re-index: `papis ask index -f`.
+        "chunk-size": 5000,
+        "overlap": 250,
         # Vision LLM for multimodal enrichment (describing figures/equations/
         # tables during indexing). Must be a multimodal model; use a provider
         # prefix that is NOT openai/ when OPENAI_API_BASE points at a local
@@ -53,4 +57,11 @@ def create_paper_qa_settings():
     settings.parsing.enrichment_llm = papis.config.getstring(
         "enrichment-llm", SECTION_NAME
     )
+    settings.parsing.reader_config = {
+        **(settings.parsing.reader_config or {}),
+        "chunk_chars": papis.config.getint("chunk-size", SECTION_NAME)
+        or DEFAULTS[SECTION_NAME]["chunk-size"],
+        "overlap": papis.config.getint("overlap", SECTION_NAME)
+        or DEFAULTS[SECTION_NAME]["overlap"],
+    }
     return settings
