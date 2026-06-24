@@ -11,7 +11,7 @@ DEFAULTS: PapisConfigType = {
         "answer-length": "about 200 words, but can be longer",
         # Chunking in characters (defaults match paper-qa). Changing either
         # requires a full re-index: `papis ask index -f`.
-        "chunk-size": 5000,
+        "chunk-chars": 5000,
         "overlap": 250,
         # Vision LLM for multimodal enrichment (describing figures/equations/
         # tables during indexing). Must be a multimodal model; use a provider
@@ -63,10 +63,8 @@ def create_paper_qa_settings():
         "enrichment-llm", SECTION_NAME
     )
     settings.parsing.reader_config = {
-        **(settings.parsing.reader_config or {}),
-        "chunk_chars": papis.config.getint("chunk-size", SECTION_NAME)
-        or DEFAULTS[SECTION_NAME]["chunk-size"],
-        "overlap": papis.config.getint("overlap", SECTION_NAME)
-        or DEFAULTS[SECTION_NAME]["overlap"],
+        **settings.parsing.reader_config,
+        "chunk_chars": papis.config.getint("chunk-chars", SECTION_NAME),
+        "overlap": papis.config.getint("overlap", SECTION_NAME),
     }
     return settings
