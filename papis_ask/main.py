@@ -1,4 +1,3 @@
-import pickle
 import os
 import time
 from pathlib import Path
@@ -6,10 +5,8 @@ from typing import Any, Dict, Optional, Set, Tuple
 
 import papis.cli
 import papis.config
-from papis.config import get_lib
 from papis.api import get_all_documents_in_lib
 import papis.logging
-from papis.utils import get_cache_home
 
 import click
 from click_default_group import DefaultGroup
@@ -45,6 +42,10 @@ def remove_document_from_index(docs_index: Any, dockey: str) -> Tuple[str, str]:
     docs_index.delete(dockey=dockey)
     docs_index.deleted_dockeys.remove(dockey)
     docs_index.docnames.remove(docname)
+
+    from papis_ask.index_store import delete_paper_sidecar
+
+    delete_paper_sidecar(file_location)
 
     return file_location, ref
 
@@ -207,11 +208,6 @@ async def update_index_metadata(
         return ref
 
 
-def get_index_file() -> Path:
-    """Get the path of the paperqa index file."""
-    return Path(get_cache_home()) / "{}.qa".format(get_lib().name)
-
-
 def get_last_modified(file_path: Path) -> float:
     """Get the last modified time of a file."""
     return os.path.getmtime(file_path)
@@ -219,61 +215,18 @@ def get_last_modified(file_path: Path) -> float:
 
 # NOTE: no types because we'd have to globally import Docs
 def get_index():
-    """Load the paperqa index from disk."""
-    file = get_index_file()
-    try:
-        if file.exists():
-            with open(file, "rb") as f:
-                docs = pickle.load(f)
-            if _migrate_index(docs):
-                save_index(docs)
-            return docs
-        return None
-    except (OSError, pickle.PickleError) as e:
-        logger.error(f"Failed to load index: {e}")
-        raise
+    """Load the paperqa index from disk (one JSON sidecar per paper)."""
+    from papis_ask.index_store import load_all_from_sidecars
 
-
-def _migrate_index(docs: Any) -> bool:
-    """Migrate old pickled index objects to be compatible with the current
-    paper-qa version. Adds missing fields that didn't exist in older versions.
-
-    Returns True if any migration was performed.
-    """
-    from paperqa.types import Text as TextType
-
-    missing_fields: dict[str, object] = {
-        name: field.get_default(call_default_factory=True)
-        for name, field in TextType.model_fields.items()
-        if not field.is_required() and field.default_factory is not None
-    }
-    if not missing_fields:
-        return False
-
-    migrated = 0
-    for text in docs.texts:
-        for field_name, default_value in missing_fields.items():
-            if not hasattr(text, field_name):
-                object.__setattr__(text, field_name, default_value)
-                migrated += 1
-    if migrated:
-        logger.info(
-            "Migrated %d missing field(s) on old index objects for "
-            "compatibility with paper-qa current.",
-            migrated,
-        )
-    return migrated > 0
+    return load_all_from_sidecars()
 
 
 # NOTE: no types because we'd have to globally import Docs
 def save_index(docs):
-    """Save the paperqa index to disk."""
-    try:
-        with open(get_index_file(), "wb") as f:
-            pickle.dump(docs, f)
-    except OSError as e:
-        logger.error(f"Failed to save index: {e}")
-        raise
+    """Save the paperqa index to disk (one JSON sidecar per paper)."""
+    from papis_ask.index_store import save_all
+
+    save_all(docs)
 
 
 def extract_doc_papis_metadata(
