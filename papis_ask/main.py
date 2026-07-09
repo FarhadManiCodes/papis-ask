@@ -55,24 +55,62 @@ async def add_file_to_index(
     docs_index: Any,
     clients: Any,
     settings: Any,
+    use_refinery: bool = True,
 ) -> Optional[str]:
-    """Add a file to the paperqa index."""
+    """Add a file to the paperqa index.
+
+    Prefers refinery's pre-built chunks (<pdf>.chunks.json, produced by the
+    separately-run `refinery`/`refinery-batch` CLI) over paper-qa's own pypdf
+    parsing; falls back to pypdf when refinery hasn't been run for this PDF,
+    its chunks are stale, or `use_refinery` is False.
+    """
     from paperqa.utils import md5sum
+    from papis_ask.refinery import chunk_name, read_refinery_chunks
 
     dockey = md5sum(file_path)
 
-    _, papis_id, _ = extract_doc_papis_metadata(doc_papis)
+    ref, papis_id, _ = extract_doc_papis_metadata(doc_papis)
+
+    chunks_payload = read_refinery_chunks(file_path) if use_refinery else None
 
     try:
-        if (
-            docname := await docs_index.aadd(
+        if chunks_payload is not None:
+            from paperqa.types import Doc, Text
+
+            doc = Doc(docname=papis_id, dockey=dockey, citation=papis_id)
+            name = ref or papis_id
+            texts = [
+                Text(
+                    text=chunk["text"],
+                    name=chunk_name(
+                        name,
+                        chunk["index"],
+                        chunk.get("page_start"),
+                        chunk.get("page_end"),
+                    ),
+                    doc=doc,
+                )
+                for chunk in chunks_payload["chunks"]
+            ]
+            added = await docs_index.aadd_texts(texts, doc, settings=settings)
+            docname = papis_id if added else None
+        else:
+            if use_refinery:
+                logger.warning(
+                    "No refined chunks found for %s; falling back to pypdf parsing. "
+                    "Run `refinery %s` (or `refinery-batch`) first to use refined chunks.",
+                    file_path,
+                    file_path,
+                )
+            docname = await docs_index.aadd(
                 file_path,
                 dockey=dockey,
                 docname=papis_id,  # to give somewhat sensible docnames (we don't depend on it)
                 citation=papis_id,  # to avoid unnecessary llm calls
                 settings=settings,
             )
-        ):
+
+        if docname:
             if ref := await update_index_metadata(
                 file_path=file_path,
                 file_last_indexed=time.time(),
@@ -412,13 +450,24 @@ async def _query_async(
     is_flag=True,
     default=False,
 )
-def index_cmd(query: Optional[str], force: bool):
+@click.option(
+    "--no-refine",
+    "--raw",
+    "no_refine",
+    help="Skip refinery's pre-built chunks (<pdf>.chunks.json) even if present; "
+    "always use paper-qa's own pypdf parsing instead.",
+    is_flag=True,
+    default=False,
+)
+def index_cmd(query: Optional[str], force: bool, no_refine: bool):
     """Update the library index."""
-    logger.debug(f"Starting 'index' with query={query}, force={force}")
-    asyncio.run(_index_async(query, force))
+    logger.debug(
+        f"Starting 'index' with query={query}, force={force}, no_refine={no_refine}"
+    )
+    asyncio.run(_index_async(query, force, not no_refine))
 
 
-async def _index_async(query: Optional[str], force: bool) -> None:
+async def _index_async(query: Optional[str], force: bool, use_refinery: bool = True) -> None:
     # importing all this here rather than globally since
     # it slows down shell autocmplete otherwise
     from papis_ask.metadata_provider import PapisProvider
@@ -575,6 +624,7 @@ async def _index_async(query: Optional[str], force: bool) -> None:
             docs_index=docs_index,
             clients=clients,
             settings=settings,
+            use_refinery=use_refinery,
         ):
             logger.info(
                 "%d/%d: Indexed @%s (%s)",
