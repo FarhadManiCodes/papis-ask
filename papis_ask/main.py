@@ -480,7 +480,11 @@ async def _index_async(query: Optional[str], force: bool, use_refinery: bool = T
     settings = create_paper_qa_settings()
 
     docs_index = get_index()
-    if docs_index is None or force:
+    # Only wipe to an empty index for a true full-library rebuild (force with
+    # no query, matching --force's own "regeneration of the entire index").
+    # force + a query means "force-reindex just what matches", which must
+    # keep the rest of the existing index intact, not silently drop it.
+    if docs_index is None or (force and not query):
         from paperqa import Docs
 
         logger.debug("Creating new empty Docs instance")
@@ -517,8 +521,18 @@ async def _index_async(query: Optional[str], force: bool, use_refinery: bool = T
     files_to_update_metadata: Set[Tuple[Path, str]] = set()
     files_to_delete: Set[Path] = set()
 
-    # Track existing files to later determine which ones to delete
+    # Track existing files to later determine which ones to delete. This has
+    # to cover the *whole* library, not just the query-scoped papis_id_to_doc:
+    # a query only decides what gets indexed/updated this run, never what
+    # counts as "still exists" -- otherwise `papis ask index "author:X"` would
+    # make every other document look deleted and wipe it from the index.
     files_on_disk: Set[Path] = set()
+    all_docs_papis = get_all_documents_in_lib() if query else docs_papis
+    for doc_papis in all_docs_papis:
+        for file_path in doc_papis.get_files():
+            file_path = Path(file_path)
+            if file_path.suffix in FILE_ENDINGS:
+                files_on_disk.add(file_path)
 
     # Create a mapping of filenames to dockeys
     index_files_to_dockey: Dict[str, str] = {}
@@ -526,7 +540,7 @@ async def _index_async(query: Optional[str], force: bool, use_refinery: bool = T
         if type(doc) is DocDetails and hasattr(doc, "file_location"):
             index_files_to_dockey[str(doc["file_location"])] = dockey
 
-    # check all files in the library
+    # check the query-scoped files only
     for papis_id, doc_papis in papis_id_to_doc.items():
         info_yaml_path = Path(doc_papis.get_info_file())
 
@@ -535,8 +549,6 @@ async def _index_async(query: Optional[str], force: bool, use_refinery: bool = T
             file_path = Path(file_path)
             file_ending = file_path.suffix
             if file_ending in FILE_ENDINGS:
-                files_on_disk.add(file_path)
-
                 # Skip processing if force is enabled (everything will be re-indexed)
                 if force:
                     files_to_index.add((file_path, papis_id))
