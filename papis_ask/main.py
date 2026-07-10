@@ -94,7 +94,16 @@ async def add_file_to_index(
                 for chunk in chunks_payload["chunks"]
             ]
             added = await docs_index.aadd_texts(texts, doc, settings=settings)
-            docname = papis_id if added else None
+            # aadd_texts mutates doc.docname in place to dedupe it (e.g. when
+            # a paper has two files -- both start out named `papis_id` --
+            # the second gets a unique suffix) rather than returning it, so
+            # read it back off `doc` instead of assuming it's still
+            # `papis_id`; using the stale, pre-dedupe name here caused two
+            # DocDetails entries to end up claiming the same `docname`, which
+            # then crashed `remove_document_from_index`'s `docnames.remove()`
+            # the next time both got reindexed together (KeyError: the
+            # shared name was already removed by the first doc's removal).
+            docname = doc.docname if added else None
         else:
             if use_refinery:
                 logger.warning(
@@ -185,7 +194,22 @@ async def update_index_metadata(
                 if value is not None
             },
         }
-        if other_details := await clients["other"].query(**query_args):
+        # Semantic Scholar / journal-quality enrichment is a nice-to-have on
+        # top of Papis' own metadata, reached over the network without an
+        # API key by default -- a rate limit (429) or any other transient
+        # error here must not abort indexing for this paper (or, under a
+        # whole-library --force reindex, every paper after it).
+        try:
+            other_details = await clients["other"].query(**query_args)
+        except Exception:
+            logger.warning(
+                "Semantic Scholar / journal-quality lookup failed for %s; "
+                "continuing with Papis metadata only.",
+                ref,
+                exc_info=True,
+            )
+            other_details = None
+        if other_details:
             doc_details = other_details + doc_details
         doc_details.fields_to_overwrite_from_metadata = {
             "citation"
@@ -251,6 +275,8 @@ def determine_file_status(
     docs_index: Any,
 ) -> Tuple[bool, bool]:
     """Determine if a file needs to be re-indexed or just have its metadata updated."""
+    from papis_ask.refinery import chunks_json_path
+
     dockey = index_files_to_dockey.get(str(file_path))
 
     # If file isn't in the index, it needs indexing
@@ -266,13 +292,24 @@ def determine_file_status(
     info_yaml_last_modified = (
         get_last_modified(info_yaml_path) if info_yaml_path.exists() else 0
     )
+    chunks_path = chunks_json_path(file_path)
+    chunks_last_modified = (
+        get_last_modified(chunks_path) if chunks_path.exists() else 0
+    )
 
     # Get stored timestamps
     file_last_indexed = getattr(doc, "other", {}).get("file_last_indexed", 0)
     metadata_last_updated = getattr(doc, "other", {}).get("metadata_last_updated", 0)
 
-    # Check if file content has changed since last indexing
-    needs_indexing = file_last_modified > file_last_indexed
+    # Check if the file itself, or refinery's pre-built chunks for it, have
+    # changed since last indexing -- refinery can regenerate chunks.json
+    # (e.g. re-running after an OCR cache repair) without touching the PDF's
+    # own mtime at all, which would otherwise leave a stale index silently
+    # out of sync with what's actually on disk.
+    needs_indexing = (
+        file_last_modified > file_last_indexed
+        or chunks_last_modified > file_last_indexed
+    )
 
     # Check if metadata has changed since last update
     needs_metadata_update = info_yaml_last_modified > metadata_last_updated
