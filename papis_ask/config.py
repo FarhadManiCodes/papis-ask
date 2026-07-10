@@ -15,6 +15,7 @@ DEFAULTS: PapisConfigType = {
         "overlap": 250,
         "context": True,
         "excerpt": False,
+        "render-math": False,
         "output": "terminal",
     }
 }

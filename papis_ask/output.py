@@ -64,6 +64,7 @@ def to_terminal_output(
     answer: Any,
     context: bool,
     excerpt: bool,
+    math: bool = False,
 ) -> None:
     """Format and print the answer with optional context and excerpts."""
     answer = transform_answer(answer)
@@ -79,7 +80,13 @@ def to_terminal_output(
         )
     )
 
-    # Create a Text object for the answer
+    # Create a Text object for the answer. LaTeX -> Unicode is terminal-only
+    # (never applied to markdown/json output, which keep real LaTeX source
+    # for downstream tools that render it themselves).
+    if math:
+        from mathunicode import convert_math_spans
+
+        answer.answer = convert_math_spans(answer.answer)
     answer_text = Text(answer.answer)
 
     # Define a regex pattern for citations like [@XYZ]
@@ -123,9 +130,15 @@ def to_terminal_output(
 
     # Format context if requested
     if context or excerpt:
+        if math:
+            from mathunicode import convert_math_spans
         for answer_context in answer.contexts:
             # Format summary
             summary = answer_context.context
+            excerpt_text = answer_context.text.text
+            if math:
+                summary = convert_math_spans(summary)
+                excerpt_text = convert_math_spans(excerpt_text)
             summary_table = Table(show_header=False, box=None)
             summary_table.add_row(Text("Summary:", style="bold"), Text(summary))
             summary_table.add_row(
@@ -133,7 +146,7 @@ def to_terminal_output(
             )
             if excerpt:
                 summary_table.add_row(
-                    Text("Excerpt:", style="bold"), Text(answer_context.text.text)
+                    Text("Excerpt:", style="bold"), Text(excerpt_text)
                 )
 
             # Print context

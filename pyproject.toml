@@ -37,7 +37,13 @@ dependencies = [
   "rich>=13.9.0",
   # required by pypdf for image extraction during multimodal enrichment
   "pillow>=8.0",
+  # LaTeX -> Unicode approximation for terminal display of math (ask --math);
+  # local sibling project, also used as-is by render-markdown.nvim's converter
+  "mathunicode",
 ]
+
+[tool.uv.sources]
+mathunicode = { path = "../mathunicode", editable = true }
 
 [project.optional-dependencies]
 test = ["pytest>=8.0.0", "pytest-asyncio>=0.25.0", "pytest-mock>=3.10.0"]
