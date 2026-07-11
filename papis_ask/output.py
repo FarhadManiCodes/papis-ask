@@ -31,7 +31,7 @@ def context_pages(context: Any) -> str | None:
 
 
 def format_source(context: Any) -> str:
-    """"@ref, p. 3" -- or just "@ref" when the chunk has no page information."""
+    """Render a chunk's citation: `@ref, p. 3`, or `@ref` when it has no pages."""
     ref = context.text.doc.other.get("ref", context.text.doc.other.get("papis_id"))
     pages = context_pages(context)
     return f"@{ref}, p. {pages}" if pages else f"@{ref}"

@@ -105,14 +105,11 @@ async def add_file_to_index(
             # shared name was already removed by the first doc's removal).
             docname = doc.docname if added else None
         else:
-            if not use_refinery:
-                pass
-            elif file_path.suffix.lower() != ".pdf":
-                # Refinery only refines PDFs, so paper-qa's own parser isn't a
-                # fallback here, it's the only correct path -- nothing to warn about.
-                logger.debug(
-                    "%s is not a PDF; parsing it with paper-qa directly.", file_path
-                )
+            if not use_refinery or file_path.suffix.lower() != ".pdf":
+                # Either the caller opted out, or this isn't a PDF -- refinery
+                # only refines PDFs, so paper-qa's own parser isn't a fallback
+                # here, it's the only correct path. Nothing to warn about.
+                logger.debug("Parsing %s with paper-qa directly.", file_path)
             else:
                 logger.warning(
                     "No refined chunks found for %s; falling back to pypdf parsing. "
@@ -140,10 +137,13 @@ async def add_file_to_index(
             chunk_chars, chunk_overlap = (
                 (None, None) if used_refinery else get_chunk_params()
             )
+            # One clock read: indexing this file and embedding its texts are
+            # the same event, so they must not disagree on when it happened.
+            now = time.time()
 
             if ref := await update_index_metadata(
                 file_path=file_path,
-                file_last_indexed=time.time(),
+                file_last_indexed=now,
                 dockey=dockey,
                 docname=docname,
                 doc_papis=doc_papis,
@@ -153,7 +153,7 @@ async def add_file_to_index(
                 # This path just embedded the texts, so the vectors on disk
                 # are by definition the currently-configured model's.
                 embedding_model=get_embedding_model(),
-                embedded_at=time.time(),
+                embedded_at=now,
                 chunk_source="refinery" if used_refinery else "pypdf",
                 chunk_chars=chunk_chars,
                 chunk_overlap=chunk_overlap,
@@ -567,7 +567,9 @@ def index_cmd(query: Optional[str], force: bool, no_refine: bool):
     asyncio.run(_index_async(query, force, not no_refine))
 
 
-async def _index_async(query: Optional[str], force: bool, use_refinery: bool = True) -> None:
+async def _index_async(
+    query: Optional[str], force: bool, use_refinery: bool = True
+) -> None:
     # importing all this here rather than globally since
     # it slows down shell autocmplete otherwise
     from papis_ask.metadata_provider import PapisProvider

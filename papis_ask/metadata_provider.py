@@ -140,31 +140,20 @@ async def get_doc_details_from_papis(
             return None
 
         if fields:
-            filtered_doc_papis = Document(
+            doc_papis = Document(
                 data={k: v for k, v in doc_papis.items() if k in fields}
-            )
-            return await parse_papis_to_doc_details(
-                filtered_doc_papis,
-                file_location,
-                file_last_indexed,
-                metadata_last_updated,
-                embedding_model,
-                embedded_at,
-                chunk_source,
-                chunk_chars,
-                chunk_overlap,
             )
 
         return await parse_papis_to_doc_details(
             doc_papis,
             file_location,
-            file_last_indexed,
-            metadata_last_updated,
-            embedding_model,
-            embedded_at,
-            chunk_source,
-            chunk_chars,
-            chunk_overlap,
+            file_last_indexed=file_last_indexed,
+            metadata_last_updated=metadata_last_updated,
+            embedding_model=embedding_model,
+            embedded_at=embedded_at,
+            chunk_source=chunk_source,
+            chunk_chars=chunk_chars,
+            chunk_overlap=chunk_overlap,
         )
 
     except Exception as e:
