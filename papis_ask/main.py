@@ -105,7 +105,15 @@ async def add_file_to_index(
             # shared name was already removed by the first doc's removal).
             docname = doc.docname if added else None
         else:
-            if use_refinery:
+            if not use_refinery:
+                pass
+            elif file_path.suffix.lower() != ".pdf":
+                # Refinery only refines PDFs, so paper-qa's own parser isn't a
+                # fallback here, it's the only correct path -- nothing to warn about.
+                logger.debug(
+                    "%s is not a PDF; parsing it with paper-qa directly.", file_path
+                )
+            else:
                 logger.warning(
                     "No refined chunks found for %s; falling back to pypdf parsing. "
                     "Run `refinery %s` (or `refinery-batch`) first to use refined chunks.",
@@ -121,7 +129,17 @@ async def add_file_to_index(
             )
 
         if docname:
-            from papis_ask.config import get_embedding_model
+            from papis_ask.config import get_chunk_params, get_embedding_model
+
+            # Record how this document was actually split. Refinery-chunked
+            # papers take their boundaries from chunks.json (whose mtime we
+            # already watch) and ignore chunk-chars/overlap, so those are only
+            # worth stamping -- and only worth comparing later -- on the pypdf
+            # fallback path.
+            used_refinery = chunks_payload is not None
+            chunk_chars, chunk_overlap = (
+                (None, None) if used_refinery else get_chunk_params()
+            )
 
             if ref := await update_index_metadata(
                 file_path=file_path,
@@ -136,6 +154,9 @@ async def add_file_to_index(
                 # are by definition the currently-configured model's.
                 embedding_model=get_embedding_model(),
                 embedded_at=time.time(),
+                chunk_source="refinery" if used_refinery else "pypdf",
+                chunk_chars=chunk_chars,
+                chunk_overlap=chunk_overlap,
             ):
                 return ref
             else:
@@ -164,15 +185,18 @@ async def update_index_metadata(
     settings: Any,
     embedding_model: Optional[str] = None,
     embedded_at: Optional[float] = None,
+    chunk_source: Optional[str] = None,
+    chunk_chars: Optional[int] = None,
+    chunk_overlap: Optional[int] = None,
 ) -> Optional[str]:
     """Update metadata for a file in the paperqa index.
 
-    `embedding_model`/`embedded_at` describe the vectors already stored for
-    this paper, so callers that are only refreshing metadata must pass the
-    *existing* values through unchanged (as they already do for
-    `file_last_indexed`) rather than the currently-configured model -- a
-    metadata refresh doesn't re-embed anything, and claiming otherwise would
-    mark stale vectors as current.
+    `embedding_model`/`embedded_at` and the `chunk_*` fields describe the
+    vectors and chunk boundaries already stored for this paper, so callers
+    that are only refreshing metadata must pass the *existing* values through
+    unchanged (as they already do for `file_last_indexed`) rather than the
+    currently-configured ones -- a metadata refresh neither re-embeds nor
+    re-chunks anything, and claiming otherwise would mark stale data current.
     """
     # Extract metadata from Papis document
     ref, papis_id, _ = extract_doc_papis_metadata(doc_papis)
@@ -186,6 +210,9 @@ async def update_index_metadata(
         metadata_last_updated=time.time(),
         embedding_model=embedding_model,
         embedded_at=embedded_at,
+        chunk_source=chunk_source,
+        chunk_chars=chunk_chars,
+        chunk_overlap=chunk_overlap,
     ):
         query_args = {
             "settings": settings,
@@ -293,7 +320,7 @@ def determine_file_status(
     docs_index: Any,
 ) -> Tuple[bool, bool]:
     """Determine if a file needs to be re-indexed or just have its metadata updated."""
-    from papis_ask.config import get_embedding_model
+    from papis_ask.config import get_chunk_params, get_embedding_model
     from papis_ask.refinery import chunks_json_path
 
     dockey = index_files_to_dockey.get(str(file_path))
@@ -313,7 +340,9 @@ def determine_file_status(
     )
     chunks_path = chunks_json_path(file_path)
     chunks_last_modified = (
-        get_last_modified(chunks_path) if chunks_path.exists() else 0
+        get_last_modified(chunks_path)
+        if chunks_path is not None and chunks_path.exists()
+        else 0
     )
 
     # Get stored timestamps
@@ -358,6 +387,25 @@ def determine_file_status(
             current_embedding_model,
         )
         needs_indexing = True
+
+    # Same blind spot, for how the document was *split* rather than embedded:
+    # changing `ask.chunk-chars`/`ask.overlap` alters pypdf's chunk boundaries
+    # while touching no file, so no mtime check catches it either. Only papers
+    # parsed by pypdf are affected -- refinery-chunked ones take their
+    # boundaries from chunks.json (already watched above) and ignore these
+    # settings entirely, so re-chunking them on a chunk-chars change would be
+    # pure wasted spend.
+    if other.get("chunk_source") == "pypdf":
+        stored_chunking = (other.get("chunk_chars"), other.get("chunk_overlap"))
+        current_chunking = get_chunk_params()
+        if None not in stored_chunking and stored_chunking != current_chunking:
+            logger.info(
+                "%s was chunked at chunk-chars/overlap %s but config is now %s; re-chunking.",
+                file_path,
+                stored_chunking,
+                current_chunking,
+            )
+            needs_indexing = True
 
     # Check if metadata has changed since last update
     needs_metadata_update = info_yaml_last_modified > metadata_last_updated
@@ -713,10 +761,14 @@ async def _index_async(query: Optional[str], force: bool, use_refinery: bool = T
         if type(doc_index) is DocDetails:
             other = docs_index.docs[dockey].other  # type: ignore (they should all be DocDetails)
             file_last_indexed = other["file_last_indexed"]
-            # Carry the existing embedding stamp through untouched: this path
-            # refreshes metadata only, it does not re-embed.
+            # Carry the existing embedding/chunking stamp through untouched:
+            # this path refreshes metadata only, it neither re-embeds nor
+            # re-chunks.
             embedding_model = other.get("embedding_model")
             embedded_at = other.get("embedded_at")
+            chunk_source = other.get("chunk_source")
+            chunk_chars = other.get("chunk_chars")
+            chunk_overlap = other.get("chunk_overlap")
 
             if not dockey:
                 logger.warning(
@@ -735,6 +787,9 @@ async def _index_async(query: Optional[str], force: bool, use_refinery: bool = T
                 settings=settings,
                 embedding_model=embedding_model,
                 embedded_at=embedded_at,
+                chunk_source=chunk_source,
+                chunk_chars=chunk_chars,
+                chunk_overlap=chunk_overlap,
             ):
                 logger.info(
                     "%d/%d: Updated metadata for @%s (%s)",

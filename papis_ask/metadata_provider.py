@@ -30,6 +30,9 @@ class LocalDocQuery(ClientQuery):
     metadata_last_updated: float
     embedding_model: Optional[str] = None
     embedded_at: Optional[float] = None
+    chunk_source: Optional[str] = None
+    chunk_chars: Optional[int] = None
+    chunk_overlap: Optional[int] = None
     fields: Optional[List[str]] = None
 
 
@@ -40,6 +43,9 @@ async def parse_papis_to_doc_details(
     metadata_last_updated: float,
     embedding_model: Optional[str] = None,
     embedded_at: Optional[float] = None,
+    chunk_source: Optional[str] = None,
+    chunk_chars: Optional[int] = None,
+    chunk_overlap: Optional[int] = None,
 ) -> DocDetails:
     """Convert Papis document metadata to DocDetails format."""
 
@@ -79,11 +85,12 @@ async def parse_papis_to_doc_details(
         other={},
     )
 
-    # Add any additional fields to the 'other' dict. `embedding_model` /
-    # `embedded_at` record which model actually produced the vectors stored
-    # for this paper and when -- vectors from different models aren't
-    # comparable, so this is what lets a later run notice the configured
-    # model has changed and re-embed instead of silently mixing vector spaces.
+    # Add any additional fields to the 'other' dict. The `embedding_*` and
+    # `chunk_*` entries record how this paper's stored vectors and chunk
+    # boundaries were actually produced -- which model, which parser, which
+    # chunk settings. Config changes to any of those invalidate what's on disk
+    # while touching no file, so this stamp is the only thing that lets a later
+    # run notice and rebuild instead of silently querying stale data.
     for key, value in (
         doc
         | {
@@ -93,6 +100,9 @@ async def parse_papis_to_doc_details(
             "metadata_last_updated": metadata_last_updated,
             "embedding_model": embedding_model,
             "embedded_at": embedded_at,
+            "chunk_source": chunk_source,
+            "chunk_chars": chunk_chars,
+            "chunk_overlap": chunk_overlap,
         }
     ).items():
         if key not in doc_details.model_fields:
@@ -111,6 +121,9 @@ async def get_doc_details_from_papis(
     metadata_last_updated: float,
     embedding_model: Optional[str] = None,
     embedded_at: Optional[float] = None,
+    chunk_source: Optional[str] = None,
+    chunk_chars: Optional[int] = None,
+    chunk_overlap: Optional[int] = None,
     fields: Optional[List[str]] = None,
     docs_by_id: Optional[Dict[str, Any]] = None,
 ) -> Optional[DocDetails]:
@@ -137,6 +150,9 @@ async def get_doc_details_from_papis(
                 metadata_last_updated,
                 embedding_model,
                 embedded_at,
+                chunk_source,
+                chunk_chars,
+                chunk_overlap,
             )
 
         return await parse_papis_to_doc_details(
@@ -146,6 +162,9 @@ async def get_doc_details_from_papis(
             metadata_last_updated,
             embedding_model,
             embedded_at,
+            chunk_source,
+            chunk_chars,
+            chunk_overlap,
         )
 
     except Exception as e:
@@ -174,6 +193,9 @@ class PapisProvider(MetadataProvider[LocalDocQuery]):
             metadata_last_updated=query.metadata_last_updated,
             embedding_model=query.embedding_model,
             embedded_at=query.embedded_at,
+            chunk_source=query.chunk_source,
+            chunk_chars=query.chunk_chars,
+            chunk_overlap=query.chunk_overlap,
             docs_by_id=self.__class__._docs_by_id,
         )
 

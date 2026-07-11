@@ -9,8 +9,10 @@ DEFAULTS: PapisConfigType = {
         "evidence-k": 10,
         "max-sources": 5,
         "answer-length": "about 200 words, but can be longer",
-        # Chunking in characters (defaults match paper-qa). Changing either
-        # requires a full re-index: `papis ask index -f`.
+        # Chunking in characters (defaults match paper-qa). Only affects the
+        # pypdf fallback path; refinery-chunked papers ignore these. Changing
+        # either is detected on the next `papis ask index`, which re-chunks
+        # the affected documents automatically.
         "chunk-chars": 5000,
         "overlap": 250,
         "context": True,
@@ -40,6 +42,20 @@ def get_embedding_model() -> str | None:
     with today -- see `determine_file_status`.
     """
     return _get_optional_string("embedding")
+
+
+def get_chunk_params() -> tuple[int, int]:
+    """The (chunk-chars, overlap) the pypdf fallback parser is configured with.
+
+    Only meaningful for documents parsed by paper-qa itself: refinery-chunked
+    papers take their chunk boundaries from `<pdf>.chunks.json` and ignore
+    these entirely. Stamped at index time so a later run can notice these
+    changed -- see `determine_file_status`.
+    """
+    return (
+        papis.config.getint("chunk-chars", SECTION_NAME),
+        papis.config.getint("overlap", SECTION_NAME),
+    )
 
 
 def create_paper_qa_settings():

@@ -15,8 +15,18 @@ import papis.logging
 logger = papis.logging.get_logger(__name__)
 
 
-def chunks_json_path(file_path: Path) -> Path:
-    """Path to the chunks manifest refinery writes next to a PDF."""
+def chunks_json_path(file_path: Path) -> Optional[Path]:
+    """Path to the chunks manifest refinery writes next to a PDF.
+
+    None for anything that isn't a PDF: refinery only refines PDFs, and its
+    manifest is named after the *stem* (`paper.pdf` -> `paper.chunks.json`).
+    A papis entry holding both `paper.pdf` and `paper.html` would otherwise
+    have `with_suffix()` map both files onto the PDF's one manifest, so the
+    HTML would silently get indexed with the PDF's chunks -- its own content
+    never parsed, and the same text embedded twice under two docnames.
+    """
+    if file_path.suffix.lower() != ".pdf":
+        return None
     return file_path.with_suffix(".chunks.json")
 
 
@@ -41,7 +51,7 @@ def read_refinery_chunks(file_path: Path) -> Optional[Dict[str, Any]]:
     than the PDF, or malformed, so callers can fall back to pypdf parsing.
     """
     chunks_path = chunks_json_path(file_path)
-    if not chunks_path.exists():
+    if chunks_path is None or not chunks_path.exists():
         return None
 
     if chunks_path.stat().st_mtime < file_path.stat().st_mtime:

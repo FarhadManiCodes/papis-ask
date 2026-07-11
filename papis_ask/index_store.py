@@ -25,11 +25,12 @@ logger = papis.logging.get_logger(__name__)
 def embeddings_json_path(file_location: Any) -> Path:
     """Path to the embeddings sidecar this module writes next to a paper's file.
 
-    Appends rather than replacing the suffix (unlike refinery's own
-    chunks_json_path, which only ever sees PDFs): a paper can have multiple
-    files of different types sharing one stem (e.g. both a .pdf and a .html
-    version), and .with_suffix() would map them to the same filename,
-    silently clobbering one with the other.
+    Appends rather than replacing the suffix: a paper can have multiple files
+    of different types sharing one stem (e.g. both a .pdf and a .html version),
+    and .with_suffix() would map them to the same filename, silently clobbering
+    one with the other. (chunks_json_path does replace the suffix, because
+    that's refinery's own naming convention -- which is exactly why it now
+    returns None for non-PDFs rather than handing the .html the .pdf's chunks.)
     """
     return Path(str(file_location) + ".embeddings.json")
 
