@@ -9,6 +9,34 @@ from rich.text import Text
 from rich.table import Table
 
 
+_CHUNK_PAGES_RE = re.compile(r"\bpages\s+(\d+(?:-\d+)?)\s*$")
+
+
+def context_pages(context: Any) -> str | None:
+    """Where in the document this specific chunk came from, e.g. "3" or "3-5".
+
+    Read off the chunk's own name (refinery stamps a page range into it via
+    `chunk_name`), NOT from `doc.pages` -- that's the bibliographic field from
+    info.yaml, i.e. where the *article* sits in its journal. Using it here
+    printed the same page range on every chunk of a paper, told you nothing
+    about where the evidence actually was, and rendered "p. None" for the many
+    papers with no `pages:` in info.yaml.
+
+    None when the chunk has no page information at all (paper-qa's own parser
+    names chunks "... chunk 1", and HTML has no pages to begin with), in which
+    case callers omit the page reference rather than inventing one.
+    """
+    match = _CHUNK_PAGES_RE.search(context.text.name or "")
+    return match.group(1) if match else None
+
+
+def format_source(context: Any) -> str:
+    """"@ref, p. 3" -- or just "@ref" when the chunk has no page information."""
+    ref = context.text.doc.other.get("ref", context.text.doc.other.get("papis_id"))
+    pages = context_pages(context)
+    return f"@{ref}, p. {pages}" if pages else f"@{ref}"
+
+
 def to_latex_math(text: str) -> str:
     return (
         text.replace(r"\(", "$")
@@ -108,12 +136,8 @@ def to_terminal_output(
     references = []
     for answer_context in answer.contexts:
         filename = Path(answer_context.text.doc.file_location).name
-        ref = answer_context.text.doc.other.get(
-            "ref", answer_context.text.doc.other.get("papis_id")
-        )
-        pages = answer_context.text.doc.pages
         reference_line = Text("- ")
-        reference_line.append(f"@{ref}, p. {pages}", style="blue")
+        reference_line.append(format_source(answer_context), style="blue")
         reference_line.append(f" ({filename})")
         references.append(reference_line)
 
@@ -151,12 +175,8 @@ def to_terminal_output(
 
             # Print context
             filename = Path(answer_context.text.doc.file_location).name
-            ref = answer_context.text.doc.other.get(
-                "ref", answer_context.text.doc.other.get("papis_id")
-            )
-            pages = answer_context.text.doc.pages
             title = Text()
-            title.append(f"@{ref}, p. {pages}", style="blue bold")
+            title.append(format_source(answer_context), style="blue bold")
             title.append(f" ({filename})", style="white")
             console.print(
                 Panel(
@@ -175,14 +195,14 @@ def to_json_output(answer: Any) -> str:
         "references": [
             {
                 "papis_id": context.text.doc.other.get("papis_id"),
-                "pages": context.text.doc.pages,
+                "pages": context_pages(context),
             }
             for context in answer.contexts
         ],
         "contexts": [
             {
                 "papis_id": context.text.doc.other.get("papis_id"),
-                "pages": context.text.doc.pages,
+                "pages": context_pages(context),
                 "summary": context.context,
                 "score": context.score,
                 "excerpt": context.text.text,
@@ -243,11 +263,7 @@ def to_markdown_output(
     markdown.append("## References\n")
     for answer_context in answer.contexts:
         filename = Path(answer_context.text.doc.file_location).name
-        ref = answer_context.text.doc.other.get(
-            "ref", answer_context.text.doc.other.get("papis_id")
-        )
-        pages = answer_context.text.doc.pages
-        markdown.append(f"- [@{ref}, p. {pages}] ({filename})")
+        markdown.append(f"- [{format_source(answer_context)}] ({filename})")
 
     # Context section (only if requested)
     if context or excerpt:
@@ -256,12 +272,7 @@ def to_markdown_output(
         for answer_context in answer.contexts:
             # Context metadata
             filename = Path(answer_context.text.doc.file_location).name
-            ref = answer_context.text.doc.other.get(
-                "ref", answer_context.text.doc.other.get("papis_id")
-            )
-            pages = answer_context.text.doc.pages
-
-            markdown.append(f"## @{ref}, p. {pages} ({filename})\n")
+            markdown.append(f"## {format_source(answer_context)} ({filename})\n")
 
             # Summary
             markdown.append(to_latex_math(answer_context.context) + "\n")
