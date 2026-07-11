@@ -32,6 +32,16 @@ def _get_optional_string(key: str) -> str | None:
         return None
 
 
+def get_embedding_model() -> str | None:
+    """The embedding model the index is currently configured to use.
+
+    Stamped into each paper's index entry when it's embedded, so a later run
+    can tell whether the vectors on disk were produced by the model we'd query
+    with today -- see `determine_file_status`.
+    """
+    return _get_optional_string("embedding")
+
+
 def create_paper_qa_settings():
     from paperqa import Settings
 

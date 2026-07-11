@@ -121,6 +121,8 @@ async def add_file_to_index(
             )
 
         if docname:
+            from papis_ask.config import get_embedding_model
+
             if ref := await update_index_metadata(
                 file_path=file_path,
                 file_last_indexed=time.time(),
@@ -130,6 +132,10 @@ async def add_file_to_index(
                 docs_index=docs_index,
                 clients=clients,
                 settings=settings,
+                # This path just embedded the texts, so the vectors on disk
+                # are by definition the currently-configured model's.
+                embedding_model=get_embedding_model(),
+                embedded_at=time.time(),
             ):
                 return ref
             else:
@@ -156,8 +162,18 @@ async def update_index_metadata(
     docs_index: Any,
     clients: Any,
     settings: Any,
+    embedding_model: Optional[str] = None,
+    embedded_at: Optional[float] = None,
 ) -> Optional[str]:
-    """Update metadata for a file in the paperqa index."""
+    """Update metadata for a file in the paperqa index.
+
+    `embedding_model`/`embedded_at` describe the vectors already stored for
+    this paper, so callers that are only refreshing metadata must pass the
+    *existing* values through unchanged (as they already do for
+    `file_last_indexed`) rather than the currently-configured model -- a
+    metadata refresh doesn't re-embed anything, and claiming otherwise would
+    mark stale vectors as current.
+    """
     # Extract metadata from Papis document
     ref, papis_id, _ = extract_doc_papis_metadata(doc_papis)
 
@@ -168,6 +184,8 @@ async def update_index_metadata(
         file_location=str(file_path),
         file_last_indexed=file_last_indexed,
         metadata_last_updated=time.time(),
+        embedding_model=embedding_model,
+        embedded_at=embedded_at,
     ):
         query_args = {
             "settings": settings,
@@ -275,6 +293,7 @@ def determine_file_status(
     docs_index: Any,
 ) -> Tuple[bool, bool]:
     """Determine if a file needs to be re-indexed or just have its metadata updated."""
+    from papis_ask.config import get_embedding_model
     from papis_ask.refinery import chunks_json_path
 
     dockey = index_files_to_dockey.get(str(file_path))
@@ -298,8 +317,9 @@ def determine_file_status(
     )
 
     # Get stored timestamps
-    file_last_indexed = getattr(doc, "other", {}).get("file_last_indexed", 0)
-    metadata_last_updated = getattr(doc, "other", {}).get("metadata_last_updated", 0)
+    other = getattr(doc, "other", {})
+    file_last_indexed = other.get("file_last_indexed", 0)
+    metadata_last_updated = other.get("metadata_last_updated", 0)
 
     # Check if the file itself, or refinery's pre-built chunks for it, have
     # changed since last indexing -- refinery can regenerate chunks.json
@@ -310,6 +330,34 @@ def determine_file_status(
         file_last_modified > file_last_indexed
         or chunks_last_modified > file_last_indexed
     )
+
+    # Vectors are only comparable to other vectors from the same model, so a
+    # change to `ask.embedding` invalidates everything embedded under the old
+    # one -- nothing about the *files* changes, so no mtime check above can
+    # ever catch it. Left unchecked, we'd compare the query's new-model vector
+    # against the paper's old-model vectors: a dimension change blows up, and
+    # a same-dimension swap silently retrieves nonsense, which is worse.
+    stored_embedding_model = other.get("embedding_model")
+    current_embedding_model = get_embedding_model()
+    if stored_embedding_model is None:
+        # Indexed before we recorded this (or by an older papis-ask). We can't
+        # tell which model produced these vectors, so don't assume they're
+        # wrong and silently bill the user for re-embedding the whole library;
+        # say so instead and let them decide to `--force`.
+        logger.debug(
+            "%s has no recorded embedding model; assuming it matches %s. "
+            "Re-index with --force if you've changed `ask.embedding` since.",
+            file_path,
+            current_embedding_model,
+        )
+    elif stored_embedding_model != current_embedding_model:
+        logger.info(
+            "%s was embedded with %s but `ask.embedding` is now %s; re-embedding.",
+            file_path,
+            stored_embedding_model,
+            current_embedding_model,
+        )
+        needs_indexing = True
 
     # Check if metadata has changed since last update
     needs_metadata_update = info_yaml_last_modified > metadata_last_updated
@@ -663,7 +711,12 @@ async def _index_async(query: Optional[str], force: bool, use_refinery: bool = T
         doc_index = docname = docs_index.docs[dockey]
         docname = doc_index.docname
         if type(doc_index) is DocDetails:
-            file_last_indexed = docs_index.docs[dockey].other["file_last_indexed"]  # type: ignore (they should all be DocDetails)
+            other = docs_index.docs[dockey].other  # type: ignore (they should all be DocDetails)
+            file_last_indexed = other["file_last_indexed"]
+            # Carry the existing embedding stamp through untouched: this path
+            # refreshes metadata only, it does not re-embed.
+            embedding_model = other.get("embedding_model")
+            embedded_at = other.get("embedded_at")
 
             if not dockey:
                 logger.warning(
@@ -680,6 +733,8 @@ async def _index_async(query: Optional[str], force: bool, use_refinery: bool = T
                 docname=docname,
                 clients=clients,
                 settings=settings,
+                embedding_model=embedding_model,
+                embedded_at=embedded_at,
             ):
                 logger.info(
                     "%d/%d: Updated metadata for @%s (%s)",

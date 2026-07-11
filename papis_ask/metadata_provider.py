@@ -28,6 +28,8 @@ class LocalDocQuery(ClientQuery):
     papis_id: str
     file_last_indexed: float
     metadata_last_updated: float
+    embedding_model: Optional[str] = None
+    embedded_at: Optional[float] = None
     fields: Optional[List[str]] = None
 
 
@@ -36,6 +38,8 @@ async def parse_papis_to_doc_details(
     file_location: str,
     file_last_indexed: float,
     metadata_last_updated: float,
+    embedding_model: Optional[str] = None,
+    embedded_at: Optional[float] = None,
 ) -> DocDetails:
     """Convert Papis document metadata to DocDetails format."""
 
@@ -75,7 +79,11 @@ async def parse_papis_to_doc_details(
         other={},
     )
 
-    # Add any additional fields to the 'other' dict
+    # Add any additional fields to the 'other' dict. `embedding_model` /
+    # `embedded_at` record which model actually produced the vectors stored
+    # for this paper and when -- vectors from different models aren't
+    # comparable, so this is what lets a later run notice the configured
+    # model has changed and re-embed instead of silently mixing vector spaces.
     for key, value in (
         doc
         | {
@@ -83,6 +91,8 @@ async def parse_papis_to_doc_details(
             "bibtex_source": [bibtex_source],
             "file_last_indexed": file_last_indexed,
             "metadata_last_updated": metadata_last_updated,
+            "embedding_model": embedding_model,
+            "embedded_at": embedded_at,
         }
     ).items():
         if key not in doc_details.model_fields:
@@ -99,6 +109,8 @@ async def get_doc_details_from_papis(
     file_location: str,
     file_last_indexed: float,
     metadata_last_updated: float,
+    embedding_model: Optional[str] = None,
+    embedded_at: Optional[float] = None,
     fields: Optional[List[str]] = None,
     docs_by_id: Optional[Dict[str, Any]] = None,
 ) -> Optional[DocDetails]:
@@ -123,10 +135,17 @@ async def get_doc_details_from_papis(
                 file_location,
                 file_last_indexed,
                 metadata_last_updated,
+                embedding_model,
+                embedded_at,
             )
 
         return await parse_papis_to_doc_details(
-            doc_papis, file_location, file_last_indexed, metadata_last_updated
+            doc_papis,
+            file_location,
+            file_last_indexed,
+            metadata_last_updated,
+            embedding_model,
+            embedded_at,
         )
 
     except Exception as e:
@@ -153,6 +172,8 @@ class PapisProvider(MetadataProvider[LocalDocQuery]):
             fields=query.fields,
             file_last_indexed=query.file_last_indexed,
             metadata_last_updated=query.metadata_last_updated,
+            embedding_model=query.embedding_model,
+            embedded_at=query.embedded_at,
             docs_by_id=self.__class__._docs_by_id,
         )
 
