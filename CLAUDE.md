@@ -27,13 +27,28 @@ first; it does not require reading the paper-refinery source.
 
 ## Running / testing
 
-It's a Papis plugin, exercised through papis itself (`papis` at `~/.local/bin/papis`):
-`papis ask index [query]`, `papis ask "<question>"`. For the integration, paper-refinery must
-be importable in the papis environment — not yet installed; per the guide §3:
-`uv pip install --python <papis-env-python> -e ~/projects/paper-refinery` (torch-free cloud
-default). **Validate live, not just via unit tests** (project rule inherited from
-paper-refinery): index one paper, confirm page-range source names + clean retrieved text,
-re-index to confirm the OCR checkpoint is reused.
+It's a Papis plugin, exercised through papis itself: `papis ask index [query]`,
+`papis ask "<question>"`. Secrets live in `~/.config/secrets/papis.env`; the `pask` zsh
+wrapper (`~/dotfiles/zsh/functions/papis.zsh`) sources them, so from a non-interactive
+shell use `zsh -c 'source ~/dotfiles/zsh/functions/papis.zsh; pask ...'`.
+
+**Unit tests:** `uv run --extra test pytest` (uses the `test` extra already declared in
+`pyproject.toml`, in a project-local `.venv`). Do **not** `uv pip install` pytest into the
+papis env: `~/.local/share/uv/tools/papis` is a uv-managed *tool* env and prunes anything
+not in its `uv-receipt.toml`, so side-loaded packages silently disappear.
+
+**The plugin is installed editable**, so whatever branch is checked out here *is* the live
+`papis ask`. Standing on `main`/an upstream branch means papis runs upstream's code (pickle
+index, no sidecars) — always return to `personal` and verify with
+`python -c "import papis_ask.refinery, papis_ask.index_store"`. Reinstall, if ever needed:
+`uv tool install --force papis --with-editable ~/projects/papis-ask --with-editable ~/projects/mathunicode`
+(both editables are required — `mathunicode` is not on PyPI).
+
+**Validate live, not just via unit tests** (project rule inherited from paper-refinery):
+index one paper, confirm page-range source names + clean retrieved text, re-index to confirm
+the OCR checkpoint is reused. When testing *upstream* code, never point it at the real
+library — use an isolated one (`papis -l /path/to/testlib ask index`), whose cache lands
+beside that path rather than in `~/.cache/papis/`.
 
 ## Conventions
 
