@@ -46,6 +46,49 @@ def iter_indexable_files(doc_papis: Any) -> Iterator[Tuple[Path, FileKind]]:
         if path.suffix.lower() in FILE_ENDINGS:
             yield path, "file"
 
+    # Notes come from papis' own `notes:` key, deliberately *not* from `files:`
+    # via a `.md` entry in FILE_ENDINGS. Every paper here has a `<stem>.md`
+    # sitting beside it holding its entire extracted text (refinery's doing),
+    # so admitting `.md` from `files:` would, the first time anything registered
+    # those artifacts, index every paper a second time under a second docname.
+    for note_path in doc_papis.get_notes():
+        path = Path(note_path)
+        # papis writes `notes:` into info.yaml *before* the file exists
+        # (papis.notes.notes_path), so an entry can name a note nobody has
+        # opened yet. Without this check it becomes a phantom that permanently
+        # "needs indexing" and fails on every run.
+        if path.is_file():
+            yield path, "note"
+
+
+def warn_on_misplaced_note(doc_papis: Any) -> None:
+    """Flag a `type: note` entry whose note is in `files:` instead of `notes:`.
+
+    Notes are discovered *only* through papis' `notes:` key, so a note written
+    into `files:` is never indexed -- and it fails in the worst way available:
+    no error, no warning from papis, just a query that mysteriously never finds
+    what you wrote. Say so at the one moment the user is watching.
+
+    Deliberately lives here and not in `iter_indexable_files`: that generator is
+    also called by `load_all_from_sidecars` on the *query* path, so warning
+    inside it would fire on every question asked, three times over.
+    """
+    if doc_papis.get("type") != "note" or doc_papis.get("notes"):
+        return
+
+    stray = [f for f in doc_papis.get_files() if Path(f).suffix.lower() == ".md"]
+    if not stray:
+        return
+
+    name = Path(stray[0]).name
+    logger.warning(
+        "'%s' is type: note with %s in files: but no notes: key -- it will not "
+        "be indexed. Move it to `notes: %s`.",
+        doc_papis.get("ref") or doc_papis.get("papis_id"),
+        name,
+        name,
+    )
+
 
 def remove_document_from_index(docs_index: Any, dockey: str) -> Tuple[str, str]:
     """Remove a document from the index."""
@@ -78,6 +121,7 @@ async def add_file_to_index(
     clients: Any,
     settings: Any,
     use_refinery: bool = True,
+    kind: FileKind = "file",
 ) -> Optional[str]:
     """Add a file to the paperqa index.
 
@@ -88,6 +132,13 @@ async def add_file_to_index(
     """
     from paperqa.utils import md5sum
     from papis_ask.refinery import chunk_name, read_refinery_chunks
+
+    if kind == "note":
+        # TODO(stage 4): ingest notes. Discovery is deliberately landed a stage
+        # ahead of ingestion so a wrong `files_on_disk` shows up here, before
+        # anything has been embedded and paid for.
+        logger.info("Would index note %s (note ingestion not yet enabled)", file_path)
+        return None
 
     dockey = md5sum(file_path)
 
@@ -652,6 +703,7 @@ async def _index_async(
     files_on_disk: Set[Path] = set()
     all_docs_papis = get_all_documents_in_lib() if query else docs_papis
     for doc_papis in all_docs_papis:
+        warn_on_misplaced_note(doc_papis)
         for file_path, _kind in iter_indexable_files(doc_papis):
             files_on_disk.add(file_path)
 
@@ -743,7 +795,7 @@ async def _index_async(
     # index all new files or changed files
     counter = 0
     total_files = len(files_to_index)
-    for file_path, papis_id, _kind in files_to_index:
+    for file_path, papis_id, kind in files_to_index:
         counter += 1
 
         doc_papis = papis_id_to_doc[papis_id]
@@ -755,6 +807,7 @@ async def _index_async(
             clients=clients,
             settings=settings,
             use_refinery=use_refinery,
+            kind=kind,
         ):
             logger.info(
                 "%d/%d: Indexed @%s (%s)",
