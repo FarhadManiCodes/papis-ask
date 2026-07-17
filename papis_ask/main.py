@@ -1,7 +1,7 @@
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional, Set, Tuple
+from typing import Any, Dict, Iterator, Literal, Optional, Set, Tuple
 
 import papis.cli
 import papis.config
@@ -24,6 +24,27 @@ logger = papis.logging.get_logger(__name__)
 settings = None
 
 FILE_ENDINGS = (".pdf", ".txt", ".html")
+
+FileKind = Literal["file", "note"]
+
+
+def iter_indexable_files(doc_papis: Any) -> Iterator[Tuple[Path, FileKind]]:
+    """Every file of a papis document that belongs in the index, with its kind.
+
+    The single source of truth for "what does this document contribute to the
+    index", used by all three places that need to agree on it: the
+    still-exists-on-disk sweep and the selection loop (both in `_index_async`),
+    and `index_store.load_all_from_sidecars`. They must never disagree -- when
+    the loader and the indexing loops have different ideas about what exists,
+    the result is phantom deletes and sidecars orphaned on disk forever.
+    """
+    for file_path in doc_papis.get_files():
+        path = Path(file_path)
+        # .lower(): a `paper.PDF` would otherwise be silently skipped here while
+        # `chunks_json_path` and `add_file_to_index` (which do lowercase) treat
+        # it as a PDF.
+        if path.suffix.lower() in FILE_ENDINGS:
+            yield path, "file"
 
 
 def remove_document_from_index(docs_index: Any, dockey: str) -> Tuple[str, str]:
@@ -619,8 +640,8 @@ async def _index_async(
         ),
     }
 
-    files_to_index: Set[Tuple[Path, str]] = set()
-    files_to_update_metadata: Set[Tuple[Path, str]] = set()
+    files_to_index: Set[Tuple[Path, str, FileKind]] = set()
+    files_to_update_metadata: Set[Tuple[Path, str, FileKind]] = set()
     files_to_delete: Set[Path] = set()
 
     # Track existing files to later determine which ones to delete. This has
@@ -631,10 +652,8 @@ async def _index_async(
     files_on_disk: Set[Path] = set()
     all_docs_papis = get_all_documents_in_lib() if query else docs_papis
     for doc_papis in all_docs_papis:
-        for file_path in doc_papis.get_files():
-            file_path = Path(file_path)
-            if file_path.suffix in FILE_ENDINGS:
-                files_on_disk.add(file_path)
+        for file_path, _kind in iter_indexable_files(doc_papis):
+            files_on_disk.add(file_path)
 
     # Create a mapping of filenames to dockeys
     index_files_to_dockey: Dict[str, str] = {}
@@ -647,26 +666,23 @@ async def _index_async(
         info_yaml_path = Path(doc_papis.get_info_file())
 
         # Figure out what documents need to be indexed
-        for file_path in doc_papis.get_files():
-            file_path = Path(file_path)
-            file_ending = file_path.suffix
-            if file_ending in FILE_ENDINGS:
-                # Skip processing if force is enabled (everything will be re-indexed)
-                if force:
-                    files_to_index.add((file_path, papis_id))
-                    continue
+        for file_path, kind in iter_indexable_files(doc_papis):
+            # Skip processing if force is enabled (everything will be re-indexed)
+            if force:
+                files_to_index.add((file_path, papis_id, kind))
+                continue
 
-                # Use the function to determine file status
-                needs_indexing, needs_metadata_update = determine_file_status(
-                    file_path, info_yaml_path, index_files_to_dockey, docs_index
-                )
+            # Use the function to determine file status
+            needs_indexing, needs_metadata_update = determine_file_status(
+                file_path, info_yaml_path, index_files_to_dockey, docs_index
+            )
 
-                if needs_indexing:
-                    logger.debug(f"File {file_path} needs to be indexed")
-                    files_to_index.add((file_path, papis_id))
-                elif needs_metadata_update:
-                    logger.debug(f"File {file_path} needs metadata update")
-                    files_to_update_metadata.add((file_path, papis_id))
+            if needs_indexing:
+                logger.debug(f"File {file_path} needs to be indexed")
+                files_to_index.add((file_path, papis_id, kind))
+            elif needs_metadata_update:
+                logger.debug(f"File {file_path} needs metadata update")
+                files_to_update_metadata.add((file_path, papis_id, kind))
 
     logger.info(f"{len(files_to_index)} file(s) will be indexed")
 
@@ -701,7 +717,7 @@ async def _index_async(
     # find files to be deleted because they changed and will be replaced with new ones
     dockeys_to_delete_bc_updated: list[str] = [
         index_files_to_dockey[str(file)]
-        for file, _ in files_to_index
+        for file, _, _ in files_to_index
         if str(file) in index_files_to_dockey
     ]
 
@@ -727,7 +743,7 @@ async def _index_async(
     # index all new files or changed files
     counter = 0
     total_files = len(files_to_index)
-    for file_path, papis_id in files_to_index:
+    for file_path, papis_id, _kind in files_to_index:
         counter += 1
 
         doc_papis = papis_id_to_doc[papis_id]
@@ -753,7 +769,7 @@ async def _index_async(
     # update metadata for papis documents that have changed
     counter = 0
     total_files = len(files_to_update_metadata)
-    for file_path, papis_id in files_to_update_metadata:
+    for file_path, papis_id, _kind in files_to_update_metadata:
         counter += 1
 
         doc_papis = papis_id_to_doc[papis_id]

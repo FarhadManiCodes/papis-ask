@@ -189,7 +189,7 @@ def load_all_from_sidecars() -> Optional[Any]:
     """
     from paperqa import Docs
     from papis.api import get_all_documents_in_lib
-    from papis_ask.main import FILE_ENDINGS
+    from papis_ask.main import iter_indexable_files
 
     _migrate_pickle_if_present()
 
@@ -198,11 +198,10 @@ def load_all_from_sidecars() -> Optional[Any]:
     docnames: set[str] = set()
 
     for doc_papis in get_all_documents_in_lib():
-        for file_path in doc_papis.get_files():
-            file_path = Path(file_path)
-            if file_path.suffix not in FILE_ENDINGS:
-                continue
-
+        # Same generator the indexing loops use, deliberately: if this walk and
+        # theirs ever disagree about what a document contributes, the index and
+        # what's on disk silently diverge.
+        for file_path, _kind in iter_indexable_files(doc_papis):
             result = read_paper_sidecar(embeddings_json_path(file_path))
             if result is None:
                 continue
