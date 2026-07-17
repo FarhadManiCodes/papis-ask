@@ -97,6 +97,15 @@ ask-context = True
 ask-excerpt = False
 ```
 
+You can also control how documents are split into chunks during indexing. Both values are in characters and default to paper-qa's own defaults, so leaving them unset preserves the current behaviour.
+
+```
+ask-chunk-chars = 5000
+ask-overlap = 250
+```
+
+These apply only to documents parsed by paper-qa itself. Papers indexed from a paper-refinery `.chunks.json` manifest take their chunk boundaries from that file and ignore both settings. Changing either is detected on the next `papis ask index`, which re-chunks and re-embeds the affected documents automatically — no `-f` needed.
+
 ## Preparation
 
 Papis-ask assumes various things about the state of your library: it assumes that your pdf files contain text and that metadata is complete and correct. There are various scripts in the `contrib` folder that can help you making sure the library is in a good state. Create backups and use at your own risk.
