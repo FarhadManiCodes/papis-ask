@@ -14,7 +14,12 @@ from types import SimpleNamespace
 import pytest
 
 from papis_ask.output import context_pages
-from papis_ask.refinery import chunk_name, chunks_json_path, read_refinery_chunks
+from papis_ask.refinery import (
+    SUPPORTED_SCHEMA_VERSION,
+    chunk_name,
+    chunks_json_path,
+    read_refinery_chunks,
+)
 
 
 @pytest.fixture
@@ -24,10 +29,17 @@ def pdf(tmp_path):
     return p
 
 
-def write_manifest(pdf, chunks):
-    """Write a chunks.json next to `pdf`, newer than it (as refinery would)."""
+def write_manifest(pdf, chunks, schema_version=SUPPORTED_SCHEMA_VERSION):
+    """Write a chunks.json next to `pdf`, newer than it (as refinery would).
+
+    `schema_version=None` omits the field entirely, simulating a manifest from
+    before the field was introduced.
+    """
     path = chunks_json_path(pdf)
-    path.write_text(json.dumps({"chunks": chunks}))
+    payload = {"chunks": chunks}
+    if schema_version is not None:
+        payload["schema_version"] = schema_version
+    path.write_text(json.dumps(payload))
     return path
 
 
@@ -89,6 +101,22 @@ class TestWhenToTrustTheManifest:
     def test_empty_manifest_falls_back(self, pdf):
         write_manifest(pdf, [])
         assert read_refinery_chunks(pdf) is None
+
+    def test_unrecognized_schema_version_falls_back(self, pdf):
+        """A future incompatible refinery release bumps schema_version -- this
+        must be caught here, not surface as a KeyError/TypeError from reading a
+        field that no longer means what this code assumes."""
+        write_manifest(pdf, [{"text": "hello", "index": 0}], schema_version=999)
+        assert read_refinery_chunks(pdf) is None
+
+    def test_missing_schema_version_is_trusted(self, pdf):
+        """Predates the field's introduction (paper-refinery < v0.2.0) -- trusted,
+        not rejected: confirmed live against paper-refinery's own pre-versioning
+        sample manifests, which are otherwise perfectly readable. Rejecting these
+        would silently regress every paper in an existing library refined before
+        the field existed back to pypdf quality."""
+        write_manifest(pdf, [{"text": "hello", "index": 0}], schema_version=None)
+        assert read_refinery_chunks(pdf) is not None
 
 
 class TestChunkNameRoundTrip:
