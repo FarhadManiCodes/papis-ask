@@ -8,22 +8,33 @@ it. paper-qa is reached through liteLLM; models are set in the papis config (`as
 Code lives in `papis_ask/`: `main.py` (commands + indexing), `metadata_provider.py`
 (`PapisProvider`, source metadata from `info.yaml`), `output.py`, `config.py`.
 
-## Current work: ingest paper-refinery chunks instead of pypdf
+## paper-refinery integration (done)
 
-The active task is replacing paper-qa's built-in pypdf PDF parsing with **paper-refinery**'s
-pre-built, section-aware chunks (figures described, citations standardized, page numbers).
-The full, self-contained hand-off guide is **`docs/paper-refinery-integration.md`** — read it
-first; it does not require reading the paper-refinery source.
+paper-qa's built-in pypdf PDF parsing is replaced by **paper-refinery**'s pre-built,
+section-aware chunks (figures described, citations standardized, page numbers) whenever a
+`<pdf>.chunks.json` is present and fresh. The full reference is
+**`docs/paper-refinery-integration.md`** — read it first; it does not require reading the
+paper-refinery source. That doc describes the design actually implemented below — not an
+earlier plan; disregard any other notes that talk about Tasks 3/4 as pending or about
+calling `refine()`/`refine_many()` in-process, that plan was superseded.
 
-- **paper-refinery** (`~/projects/paper-refinery`, released **v0.1.0**) is DONE and frozen. It
-  turns a PDF into chunks via `paper_refinery.refine()` / `refine_many()` and is deliberately
-  **paper-qa-agnostic** — so **all paper-qa glue lives here, in papis-ask.** It is cloud-first
-  (GLM-OCR `mode="maas"`, torch-free) and needs `ZHIPU_API_KEY` + `GOOGLE_API_KEY` at runtime.
-- **Task 3** — `main.py::add_file_to_index` (line 52): swap the `docs_index.aadd(file_path)`
-  call (line 68, pypdf) for `aadd_texts(texts, doc)` built from `refine(pdf, doi=…).chunks`.
-- **Task 4** — refine-on-index: staleness in `determine_file_status` (line 256);
-  `--force-refine` / `--no-refine` flags; batch path via `refine_many`.
-- **Never let a refine failure fail indexing** — fall back to pypdf with a warning.
+- **paper-refinery** (`~/projects/paper-refinery`, currently **v0.3.0**) is a separate CLI
+  tool (`uv tool install ~/projects/paper-refinery` → `refinery`/`refinery-batch`/
+  `refinery-export-citations`/`refinery-typeset` on `PATH`), **not a Python dependency** —
+  papis-ask never imports `paper_refinery` anywhere. It is cloud-first (GLM-OCR
+  `mode="maas"`, torch-free) and needs `ZHIPU_API_KEY` + `GOOGLE_API_KEY` at runtime, but
+  only when *you* run `refinery`/`refinery-batch` yourself — never as a side effect of
+  `pask index`.
+- `main.py::add_file_to_index` (117) prefers `<pdf>.chunks.json` (read via
+  `papis_ask/refinery.py`) over `docs_index.aadd(file_path)` (pypdf), calling
+  `aadd_texts(texts, doc)` instead when a fresh manifest exists.
+- `determine_file_status` (388) triggers re-indexing on either the PDF's mtime *or* the
+  chunks.json's mtime changing. There is **no auto-refine-on-index**: a missing/stale
+  manifest falls back to pypdf with a warning telling you to run `refinery`/
+  `refinery-batch` yourself. `--no-refine` / `--raw` forces pypdf regardless of a valid
+  manifest being present.
+- **Never let a missing/failed refine fail indexing** — fall back to pypdf with a warning
+  (implemented, not just a principle).
 
 ## Running / testing
 
@@ -53,8 +64,9 @@ beside that path rather than in `~/.cache/papis/`.
 ## Conventions
 
 - **NEVER** add `Co-Authored-By` or any AI-attribution trailer to commits or PRs.
-- Key touchpoints: `papis_ask/main.py` — `add_file_to_index` (52), `update_index_metadata`
-  (102), `determine_file_status` (256); `papis_ask/metadata_provider.py` — `PapisProvider`
-  (137).
+- Key touchpoints: `papis_ask/main.py` — `add_file_to_index` (117), `update_index_metadata`
+  (249), `determine_file_status` (388); `papis_ask/refinery.py` — the entire
+  paper-refinery seam (`chunks_json_path`, `read_refinery_chunks`, `chunk_name`);
+  `papis_ask/metadata_provider.py` — `PapisProvider` (164).
 - Don't reconcile refinery's in-text `[surname_year]` citekeys with papis refs (shelved —
   paper-qa doesn't use them for retrieval).
