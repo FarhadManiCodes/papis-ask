@@ -3,10 +3,40 @@
 papis-ask is a **Papis plugin** that integrates **paper-qa** to answer questions over a
 Papis library: `papis ask index [query]` builds the index, `papis ask "<question>"` queries
 it. paper-qa is reached through liteLLM; models are set in the papis config (`ask-llm`,
-`ask-summary-llm`, `ask-embedding` — the last is typically `ollama/nomic-embed-text`, local).
+`ask-summary-llm`, `ask-embedding`). Embedding is **`gemini/gemini-embedding-2`** in the
+live config — not a local ollama model, so re-embedding costs real quota and every
+"should this be re-indexed?" decision is a spending decision.
 
 Code lives in `papis_ask/`: `main.py` (commands + indexing), `metadata_provider.py`
-(`PapisProvider`, source metadata from `info.yaml`), `output.py`, `config.py`.
+(`PapisProvider`, source metadata from `info.yaml`), `output.py`, `config.py`,
+`notes.py` (what of a reading note is worth embedding).
+
+## Note ingestion (done)
+
+Notes are discovered through papis' `notes:` key (never via a `.md` in `files:` — every
+paper has a refinery `<stem>.md` of its full text beside it, which would index the paper
+twice) and embedded like any other source, with three deliberate differences:
+
+- **Quotes are stripped before embedding** (`papis_ask/notes.py`). Notes are captured by
+  sioyek's `Alt+n` (`dotfiles/bash/sioyek-papis-note`), which writes the selected passage
+  inside `<!--quote-->` fences and the page position as an HTML comment. That passage is
+  already embedded from the PDF; indexing it again makes one paragraph compete with
+  itself for `ask.max-sources`, so a question returns it twice and one fewer other paper.
+  An unclosed fence fails **open** — over-index a passage rather than guess where a quote
+  ended and silently drop the prose after it.
+- **A note with no prose is not indexed at all.** `Alt+n` writes a heading and a quote
+  before you type, so `indexable_prose()` reports nothing unless some line is not a
+  heading. Otherwise every capture would buy a vector containing only `## p.7`.
+- **Sources are marked `@<ref> (note)`** at render time (`output.source_ref`), *not* via
+  `Doc.citation`: `update_index_metadata` lists `citation` in
+  `fields_to_overwrite_from_metadata`, so anything written there is replaced by the papis
+  title on the DocDetails upgrade. Rendering never reads `citation` anyway — both
+  `format_source` and `transform_answer` build from `doc.other["ref"]`.
+
+Notes carry `chunk_source: "note"` and are chunked by `ask.chunk-chars`/`ask.overlap`, so
+they belong in the same staleness gate as pypdf papers — `determine_file_status` checks
+`chunk_source in ("pypdf", "note")`. Reading `== "pypdf"` would freeze every note at
+whatever chunking was configured the day it was written, with no mtime moving to show it.
 
 ## paper-refinery integration (done)
 
