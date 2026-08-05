@@ -130,6 +130,23 @@ class TestChunkingChanged:
             paper, chunk_source="pypdf", chunk_chars=None, chunk_overlap=None
         ) == (False, False)
 
+    def test_note_is_rechunked(self, paper):
+        """Notes are split by these settings too, so they go stale the same way.
+
+        Missed once: the gate read `== "pypdf"`, which left every note chunked at
+        whatever chunk-chars was configured the day it was written, with nothing
+        on disk changing to reveal it.
+        """
+        assert (
+            status(paper, chunk_source="note", chunk_chars=3000, chunk_overlap=250)[0]
+            is True
+        )
+
+    def test_note_with_matching_chunk_params_is_left_alone(self, paper):
+        assert status(
+            paper, chunk_source="note", chunk_chars=5000, chunk_overlap=250
+        ) == (False, False)
+
 
 class TestNotInTheIndex:
     def test_an_unknown_file_needs_indexing(self, paper):

@@ -133,21 +133,57 @@ async def add_file_to_index(
     from paperqa.utils import md5sum
     from papis_ask.refinery import chunk_name, read_refinery_chunks
 
-    if kind == "note":
-        # TODO(stage 4): ingest notes. Discovery is deliberately landed a stage
-        # ahead of ingestion so a wrong `files_on_disk` shows up here, before
-        # anything has been embedded and paid for.
-        logger.info("Would index note %s (note ingestion not yet enabled)", file_path)
-        return None
-
     dockey = md5sum(file_path)
 
     ref, papis_id, _ = extract_doc_papis_metadata(doc_papis)
 
-    chunks_payload = read_refinery_chunks(file_path) if use_refinery else None
+    # Only papers have refined chunks. Asking for a note's chunks.json would
+    # always miss, and would log the "run refinery first" warning at someone who
+    # cannot act on it -- refinery does not process markdown.
+    chunks_payload = (
+        read_refinery_chunks(file_path) if use_refinery and kind == "file" else None
+    )
 
     try:
-        if chunks_payload is not None:
+        if kind == "note":
+            from paperqa.readers import chunk_text, parse_text
+            from paperqa.types import Doc
+
+            from papis_ask.config import get_chunk_params
+            from papis_ask.notes import indexable_prose
+
+            parsed = parse_text(file_path)
+            prose = indexable_prose(parsed.content)
+            if not prose:
+                # A note holding only quotes and position markers has nothing of
+                # yours in it yet. Embedding the empty remainder would pay for a
+                # vector that can never answer anything.
+                logger.info(
+                    "Note %s has no prose left after removing quotes; not indexing.",
+                    file_path,
+                )
+                return None
+
+            chunk_chars, chunk_overlap = get_chunk_params()
+            # Distinct docname and citation: an answer must never let your own
+            # speculation wear the authors' name. `(note)` is what shows up in
+            # the source list.
+            doc = Doc(
+                docname=f"{papis_id}-note",
+                dockey=dockey,
+                citation=f"{ref or papis_id} (note)",
+            )
+            texts = chunk_text(
+                parsed.model_copy(update={"content": prose}),
+                doc,
+                chunk_chars,
+                chunk_overlap,
+            )
+            added = await docs_index.aadd_texts(texts, doc, settings=settings)
+            # Same in-place dedupe as the refinery path below.
+            docname = doc.docname if added else None
+            chunk_source = "note"
+        elif chunks_payload is not None:
             from paperqa.types import Doc, Text
 
             doc = Doc(docname=papis_id, dockey=dockey, citation=papis_id)
@@ -176,6 +212,7 @@ async def add_file_to_index(
             # the next time both got reindexed together (KeyError: the
             # shared name was already removed by the first doc's removal).
             docname = doc.docname if added else None
+            chunk_source = "refinery"
         else:
             if not use_refinery or file_path.suffix.lower() != ".pdf":
                 # Either the caller opted out, or this isn't a PDF -- refinery
@@ -196,6 +233,7 @@ async def add_file_to_index(
                 citation=papis_id,  # to avoid unnecessary llm calls
                 settings=settings,
             )
+            chunk_source = "pypdf"
 
         if docname:
             from papis_ask.config import get_chunk_params, get_embedding_model
@@ -203,11 +241,10 @@ async def add_file_to_index(
             # Record how this document was actually split. Refinery-chunked
             # papers take their boundaries from chunks.json (whose mtime we
             # already watch) and ignore chunk-chars/overlap, so those are only
-            # worth stamping -- and only worth comparing later -- on the pypdf
-            # fallback path.
-            used_refinery = chunks_payload is not None
+            # worth stamping -- and only worth comparing later -- where the
+            # settings actually decided the boundaries: pypdf and notes.
             chunk_chars, chunk_overlap = (
-                (None, None) if used_refinery else get_chunk_params()
+                (None, None) if chunk_source == "refinery" else get_chunk_params()
             )
             # One clock read: indexing this file and embedding its texts are
             # the same event, so they must not disagree on when it happened.
@@ -226,7 +263,7 @@ async def add_file_to_index(
                 # are by definition the currently-configured model's.
                 embedding_model=get_embedding_model(),
                 embedded_at=now,
-                chunk_source="refinery" if used_refinery else "pypdf",
+                chunk_source=chunk_source,
                 chunk_chars=chunk_chars,
                 chunk_overlap=chunk_overlap,
             ):
@@ -462,12 +499,12 @@ def determine_file_status(
 
     # Same blind spot, for how the document was *split* rather than embedded:
     # changing `ask.chunk-chars`/`ask.overlap` alters pypdf's chunk boundaries
-    # while touching no file, so no mtime check catches it either. Only papers
-    # parsed by pypdf are affected -- refinery-chunked ones take their
-    # boundaries from chunks.json (already watched above) and ignore these
-    # settings entirely, so re-chunking them on a chunk-chars change would be
-    # pure wasted spend.
-    if other.get("chunk_source") == "pypdf":
+    # while touching no file, so no mtime check catches it either. Applies to
+    # anything these settings actually split -- pypdf papers and notes.
+    # Refinery-chunked papers take their boundaries from chunks.json (already
+    # watched above) and ignore these settings entirely, so re-chunking them on a
+    # chunk-chars change would be pure wasted spend.
+    if other.get("chunk_source") in ("pypdf", "note"):
         stored_chunking = (other.get("chunk_chars"), other.get("chunk_overlap"))
         current_chunking = get_chunk_params()
         if None not in stored_chunking and stored_chunking != current_chunking:
