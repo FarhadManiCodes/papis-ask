@@ -30,9 +30,25 @@ def context_pages(context: Any) -> str | None:
     return match.group(1) if match else None
 
 
+def source_ref(doc: Any) -> str:
+    """The ref to display for a chunk, marked when it came from your own note.
+
+    The marker cannot live on `Doc.citation`: `update_index_metadata` sets
+    `fields_to_overwrite_from_metadata = {"citation"}`, so anything put there is
+    replaced by the papis title during the DocDetails upgrade. Rendering is the
+    only place the distinction survives -- and it has to survive somewhere,
+    because an answer that cites your speculation exactly like the authors'
+    claims is worse than one that cannot see your notes at all.
+    """
+    ref = doc.other.get("ref", doc.other.get("papis_id"))
+    if doc.other.get("chunk_source") == "note":
+        return f"{ref} (note)"
+    return ref
+
+
 def format_source(context: Any) -> str:
     """Render a chunk's citation: `@ref, p. 3`, or `@ref` when it has no pages."""
-    ref = context.text.doc.other.get("ref", context.text.doc.other.get("papis_id"))
+    ref = source_ref(context.text.doc)
     pages = context_pages(context)
     return f"@{ref}, p. {pages}" if pages else f"@{ref}"
 
@@ -57,8 +73,7 @@ def transform_answer(answer: Any) -> Any:
     # First pass: collect all document names and their references and convert to latex math
     for context in answer.contexts:
         context.context = to_latex_math(context.context)
-        ref = context.text.doc.other.get("ref", context.text.doc.other.get("papis_id"))
-        papis_id_to_ref[context.text.name.split()[0]] = ref
+        papis_id_to_ref[context.text.name.split()[0]] = source_ref(context.text.doc)
 
     # Replace references in the answer text
     # Pattern: (papis_id pages X-N) -> [@ref, p. X-N]

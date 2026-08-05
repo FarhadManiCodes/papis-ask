@@ -165,13 +165,16 @@ async def add_file_to_index(
                 return None
 
             chunk_chars, chunk_overlap = get_chunk_params()
-            # Distinct docname and citation: an answer must never let your own
-            # speculation wear the authors' name. `(note)` is what shows up in
-            # the source list.
+            # `-note` keeps a note's docname distinct from its paper's, so both
+            # can be in the index at once. The user-visible "(note)" marker is
+            # *not* set here: `update_index_metadata` lists `citation` in
+            # `fields_to_overwrite_from_metadata`, so anything written to it is
+            # replaced by the papis title on the DocDetails upgrade. The marker
+            # is applied at render time instead -- see `output.source_ref`.
             doc = Doc(
                 docname=f"{papis_id}-note",
                 dockey=dockey,
-                citation=f"{ref or papis_id} (note)",
+                citation=papis_id,
             )
             texts = chunk_text(
                 parsed.model_copy(update={"content": prose}),

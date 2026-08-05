@@ -7,9 +7,12 @@ import pytest
 from papis_ask.output import context_pages, format_source, transform_answer
 
 
-def make_context(name, ref="Kalman_1960", text="", summary=""):
+def make_context(name, ref="Kalman_1960", text="", summary="", chunk_source=None):
+    other = {"ref": ref, "papis_id": "abc123"}
+    if chunk_source is not None:
+        other["chunk_source"] = chunk_source
     doc = SimpleNamespace(
-        other={"ref": ref, "papis_id": "abc123"},
+        other=other,
         # The bibliographic page range from info.yaml. Deliberately set to
         # something that is NOT the chunk's location: nothing should read it.
         pages="35--45",
@@ -90,3 +93,42 @@ class TestTransformAnswer:
         ctx = make_context("abc123 pages 6")
         answer = transform_answer(self.make_answer(math, [ctx]))
         assert answer.answer == math
+
+
+class TestNoteSourcesAreMarked:
+    """Your own thinking must never be cited as if the authors had said it.
+
+    Caught only by live validation: `Doc.citation` was being set to
+    "<ref> (note)" at index time, but `update_index_metadata` lists `citation` in
+    `fields_to_overwrite_from_metadata`, so the DocDetails upgrade replaced it
+    with the papis title and the marker vanished. Nothing in the unit suite
+    looked at `citation`, and rendering never read it in the first place.
+    """
+
+    def test_note_source_is_marked(self):
+        ctx = make_context("abc123-note chunk 1", chunk_source="note")
+        assert format_source(ctx) == "@Kalman_1960 (note)"
+
+    def test_paper_source_is_not_marked(self):
+        ctx = make_context("Kalman_1960 chunk 1 pages 6-7", chunk_source="refinery")
+        assert format_source(ctx) == "@Kalman_1960, p. 6-7"
+
+    def test_a_chunk_with_no_chunk_source_is_not_marked(self):
+        """Entries indexed before chunk_source was stamped must still render."""
+        assert format_source(make_context("Kalman_1960 chunk 1")) == "@Kalman_1960"
+
+    def test_inline_citation_from_a_note_is_marked(self):
+        answer = SimpleNamespace(
+            answer="The whiteness assumption fails here (abc123-note).",
+            contexts=[make_context("abc123-note chunk 1", chunk_source="note")],
+        )
+        assert "[@Kalman_1960 (note)]" in transform_answer(answer).answer
+
+    def test_inline_citation_from_a_paper_is_unchanged(self):
+        answer = SimpleNamespace(
+            answer="The covariance propagates (Kalman_1960 pages 6-7).",
+            contexts=[
+                make_context("Kalman_1960 chunk 1 pages 6-7", chunk_source="refinery")
+            ],
+        )
+        assert "[@Kalman_1960, p. 6-7]" in transform_answer(answer).answer
