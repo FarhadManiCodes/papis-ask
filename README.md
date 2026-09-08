@@ -82,10 +82,17 @@ Configure the following settings in your Papis configuration file:
 ```
 ask-llm = "your-preferred-llm-model"
 ask-summary-llm = "your-preferred-summary-llm-model"
+ask-enrichment-llm = "your-preferred-enrichment-llm-model"
 ask-embedding = "your-preferred-embedding-model"
 ```
 
 I've had decent success using "ollama/nomic-embed-text" to create embeddings locally.
+
+The enrichment LLM will be used to process images. This can be turned off with the following setting:
+
+```
+ask-multimodal = False
+```
 
 Additionally, you can set the settings that define defaults for the plugin's arguments. See the section on commands below for further information on what these settings do.
 

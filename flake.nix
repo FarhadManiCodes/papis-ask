@@ -64,6 +64,9 @@
               python3Packages.paper-qa
               python3Packages.click-default-group
               python3Packages.rich
+              python3Packages.pillow
+              python3Packages.pypdfium2
+              pkgs.jbig2dec
             ]
             ++ python3Packages.paper-qa.optional-dependencies.paper-qa-pypdf;
 
