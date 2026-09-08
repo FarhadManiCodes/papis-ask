@@ -44,7 +44,9 @@ def remove_document_from_index(docs_index: Any, dockey: str) -> Tuple[str, str]:
     # Remove document from index
     docs_index.delete(dockey=dockey)
     docs_index.deleted_dockeys.remove(dockey)
-    docs_index.docnames.remove(docname)
+    # Only remove the docname from the index if no other document uses it
+    if not any(doc.docname == docname for doc in docs_index.docs.values()):
+        docs_index.docnames.remove(docname)
 
     return file_location, ref
 
