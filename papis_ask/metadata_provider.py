@@ -156,7 +156,7 @@ class PapisProvider(MetadataProvider[LocalDocQuery]):
             docs_by_id=self.__class__._docs_by_id,
         )
 
-    def query_transformer(self, query: dict) -> LocalDocQuery:
+    def query_factory(self, query: dict) -> LocalDocQuery:
         """Transform a raw query dict into a LocalDocQuery object."""
         required_fields = {"papis_id", "file_location"}
         missing_fields = required_fields - query.keys()
