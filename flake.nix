@@ -32,18 +32,29 @@
           };
         };
         python3Packages = python.pkgs;
+
+        pyproject = builtins.fromTOML (builtins.readFile ./pyproject.toml);
+        version =
+          if (self ? rev) then
+            "${pyproject.project.version}+git.${self.shortRev}"
+          else
+            "${pyproject.project.version}+git.${builtins.replaceStrings [ "-" ] [ "." ] self.dirtyShortRev}";
       in
       {
         packages = {
           papis-ask = python3Packages.buildPythonPackage {
             pname = "papis-ask";
-            version = if (self ? rev) then self.shortRev else self.dirtyShortRev;
+            inherit version;
 
             format = "pyproject";
 
             src = ./.;
 
             build-system = [ python3Packages.hatchling ];
+
+            nativeBuildInputs = pkgs.lib.optionals (python3Packages ? pyprojectVersionPatchHook) [
+              python3Packages.pyprojectVersionPatchHook
+            ];
 
             buildInputs = [
               python3Packages.papis
