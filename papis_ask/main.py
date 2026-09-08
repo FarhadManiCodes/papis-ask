@@ -148,7 +148,12 @@ async def update_index_metadata(
                 if value is not None
             },
         }
-        if other_details := await clients["other"].query(**query_args):
+        try:
+            other_details = await clients["other"].query(**query_args)
+        except Exception as e:
+            logger.warning(f"Metadata enrichment failed for {ref} ({file_path}): {e}")
+            other_details = None
+        if other_details:
             doc_details = other_details + doc_details
         doc_details.fields_to_overwrite_from_metadata = {
             "citation"
