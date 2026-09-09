@@ -51,7 +51,7 @@ async def parse_papis_to_doc_details(
     author_list = doc.get("author_list", doc.get("editor_list"))
     if author_list:
         authors = [
-            f"{author.get('given', '').title()} {author.get('family', '').title()}".strip()
+            f"{(author.get('given') or '').title()} {(author.get('family') or '').title()}".strip()
             for author in author_list
         ]
     else:
