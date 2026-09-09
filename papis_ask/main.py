@@ -75,6 +75,8 @@ async def add_file_to_index(
                 settings=settings,
             )
         ):
+            # Keep freshly embedded chunks float32 to limit peak RAM while indexing
+            _embeddings_to_float32(docs_index)
             if ref := await update_index_metadata(
                 file_path=file_path,
                 file_last_indexed=time.time(),
@@ -186,6 +188,16 @@ def get_last_modified(file_path: Path) -> float:
     return os.path.getmtime(file_path)
 
 
+def _embeddings_to_float32(docs_index: Any) -> None:
+    """Convert embedding lists to float32 ndarrays"""
+    import numpy as np  # deferred: slows down shell autocomplete otherwise
+
+    for text in docs_index.texts:
+        embedding = text.embedding
+        if embedding is not None and not isinstance(embedding, np.ndarray):
+            text.embedding = np.asarray(embedding, dtype=np.float32)
+
+
 # NOTE: no types because we'd have to globally import Docs
 def get_index():
     """Load the paperqa index from disk."""
@@ -236,12 +248,19 @@ def _migrate_index(docs: Any) -> bool:
 
 # NOTE: no types because we'd have to globally import Docs
 def save_index(docs):
-    """Save the paperqa index to disk."""
+    """Save the paperqa index to disk (atomically)."""
+    _embeddings_to_float32(docs)
+    target = get_index_file()
+    tmp = target.with_name(target.name + ".tmp")
     try:
-        with open(get_index_file(), "wb") as f:
+        with open(tmp, "wb") as f:
             pickle.dump(docs, f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, target)
     except OSError as e:
         logger.error(f"Failed to save index: {e}")
+        tmp.unlink(missing_ok=True)
         raise
 
 
