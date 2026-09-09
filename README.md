@@ -75,18 +75,16 @@ Nix users can use the flake to create an overlay for Papis that includes Papis-a
 
 ## Configuration
 
-Paper-qa (and hence Papis-ask) uses [liteLLM](https://github.com/BerriAI/litellm) for model access, which supports various LLM providers (Ollama, OpenAI, Anthropic, Google, etc.). You'll need to set up your models and API keys following the [liteLLM documentation](https://docs.litellm.ai/docs).
+Paper-qa (and hence Papis-ask) uses [liteLLM](https://github.com/BerriAI/litellm) for model access, which supports various local and remote LLM providers. You'll need to set up your models and API keys following the [liteLLM documentation](https://docs.litellm.ai/docs).
 
 Configure the following settings in your Papis configuration file:
 
 ```
 ask-llm = "your-preferred-llm-model"
 ask-summary-llm = "your-preferred-summary-llm-model"
-ask-enrichment-llm = "your-preferred-enrichment-llm-model"
 ask-embedding = "your-preferred-embedding-model"
+ask-enrichment-llm = "your-preferred-enrichment-llm-model"
 ```
-
-I've had decent success using "ollama/nomic-embed-text" to create embeddings locally.
 
 The enrichment LLM will be used to process images. This can be turned off with the following setting:
 
@@ -94,7 +92,7 @@ The enrichment LLM will be used to process images. This can be turned off with t
 ask-multimodal = False
 ```
 
-Additionally, you can set the settings that define defaults for the plugin's arguments. See the section on commands below for further information on what these settings do.
+Additionally, you can set the defaults for the plugin's arguments. See the section on commands below for further information on what these do.
 
 ```
 ask-evidence-k = 10
@@ -163,7 +161,7 @@ Make sure your papis library's cache is up-to-date. Run `papis cache reset` when
 
 ### Semantic Scholar
 
-Papis-ask is querying Semantic Scholar for some metadata. This service is quite strictly rate-limited. Getting your own api key can help, though unfortunately there seems to be a long waitlist. Otherwise, rerunning the command is the only option at the moment.
+Papis-ask queries Semantic Scholar for some metadata. This service is quite strictly rate-limited. Getting your own API key can help, though unfortunately there seems to be a long waitlist. Otherwise, rerunning the command is the only option at the moment.
 
 ## Screenshots
 
