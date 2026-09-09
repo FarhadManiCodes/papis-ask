@@ -97,7 +97,11 @@ async def add_file_to_index(
     except ValueError as e:
         if "This does not look like a text document" in str(e):
             logger.warning(f"File not recognised as text document: {file_path}")
-            logger.warning("Usually, this means the file is faulty or not ocr'ed")
+            logger.warning(
+                "Usually, this means the file is faulty, not ocr'ed, or has a "
+                "garbage text layer (e.g. broken font encoding). See "
+                "contrib/ocrpdf.py to detect and fix such files."
+            )
         else:
             # Re-raise other ValueErrors
             raise

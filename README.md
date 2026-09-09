@@ -106,7 +106,7 @@ ask-excerpt = False
 
 Papis-ask assumes various things about the state of your library: it assumes that your pdf files contain text and that metadata is complete and correct. There are various scripts in the `contrib` folder that can help you making sure the library is in a good state. Create backups and use at your own risk.
 
-You might want to use the `ocrpdf.sh` script to OCR all PDFs that are missing embedded texts. The script is semi-smart at detecting which PDFs need to be processed and doesn't mess with annotations.
+You might want to use the `ocrpdf.py` script to fix all PDFs that are missing embedded texts or whose embedded text is garbage. The script inspects the text of every page, and OCRs the files it classifies as broken (with backups under `ocr_backups/`). Use `--dry-run` to only report problematic PDFs without modifying them. Do check the results -- by comparing the backups with the newly created PDFs -- as PDFs can be broken in old sorts of unique ways that the scripts may not handle correctly.
 
 The `editor-author-list.py` and `fix-months.sh` scripts help fix the metadata in your `info.yaml` files. The first creates `author_list` and `editor_list` fields from `author` and `editor` fields, respectively. The second converts the `month` fields to an integer. Additionally, I suggest to use `papis doctor` to make sure the library doesn't contain any errors. Files will be indexed even if metadata is missing or false, but such mistakes might impact response quality.
 
