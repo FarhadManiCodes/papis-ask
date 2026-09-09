@@ -40,16 +40,20 @@ find "$SEARCH_DIR" -type f -name "*.pdf" | while read -r pdf_file; do
 
   # Get page count
   page_count=$(pdfinfo "$pdf_file" 2>/dev/null | grep -a "Pages:" | awk '{print $2}')
+  [ -n "$page_count" ] || page_count=1
 
   # Check if PDF is only one page
   if [ "$page_count" = "1" ]; then
     echo "ℹ️ WARNING. Single-page PDF detected: $pdf_file"
   fi
 
-  # Check if the PDF has extractable text
-  # Create a temporary file for text extraction
+  # Check if the PDF has extractable text (sampling 5 pages 1/3 into the document)
   temp_txt=$(mktemp)
-  pdftotext -l 5 "$pdf_file" "$temp_txt" 2>/dev/null
+  start_page=$(( page_count / 3 ))
+  [ "$start_page" -lt 1 ] && start_page=1
+  end_page=$(( start_page + 4 ))
+  [ "$end_page" -gt "$page_count" ] && end_page=$page_count
+  pdftotext -f "$start_page" -l "$end_page" "$pdf_file" "$temp_txt" 2>/dev/null
 
   # Check if extracted text file is empty (or nearly empty)
   if [ ! -s "$temp_txt" ] || [ "$(stat -c%s "$temp_txt")" -lt 50 ]; then
