@@ -120,7 +120,7 @@ Before querying, you need to index your library:
 $ papis ask index
 ```
 
-Note that this can take a long time if you're indexing your whole library. Progress is saved after each document, and it's hence possible to interrupt the commmand and continue later.
+Note that this can take a long time if you're indexing your whole library. Progress is checkpointed every 25 documents and saved when the command exits (including on Ctrl-C), so it's possible to interrupt the command and continue later.
 
 You can also index specific documents (note that this will remove documents that *don't* match the query from the index):
 

@@ -28,6 +28,8 @@ settings = None
 
 FILE_ENDINGS = (".pdf", ".txt", ".html")
 
+MAX_FILES_BEFORE_INDEX_SAVED = 25
+
 
 def remove_document_from_index(docs_index: Any, dockey: str) -> Tuple[str, str]:
     """Remove a document from the index."""
@@ -173,8 +175,6 @@ async def update_index_metadata(
             if text.doc.dockey == dockey:
                 text.doc = doc_details
 
-        # Save the updated index
-        save_index(docs_index)
         return ref
 
 
@@ -262,6 +262,12 @@ def save_index(docs):
         logger.error(f"Failed to save index: {e}")
         tmp.unlink(missing_ok=True)
         raise
+
+
+def checkpoint_index(docs_index: Any, files_processed: int) -> None:
+    """Persist the index every INDEX_CHECKPOINT_FILES processed files."""
+    if files_processed % MAX_FILES_BEFORE_INDEX_SAVED == 0:
+        save_index(docs_index)
 
 
 def extract_doc_papis_metadata(
@@ -568,89 +574,94 @@ async def _index_async(query: Optional[str], force: bool) -> None:
         if str(file) in index_files_to_dockey
     ]
 
-    # Delete files that have been updated (to avoid having duplicates of same file with different hashes)
-    for dockey in dockeys_to_delete_bc_updated:
-        remove_document_from_index(docs_index, dockey)
+    try:
+        # Delete files that have been updated (to avoid having duplicates of same file with different hashes)
+        for dockey in dockeys_to_delete_bc_updated:
+            remove_document_from_index(docs_index, dockey)
 
-    # Delete files that have been deleted
-    counter = 0
-    total_files = len(dockeys_to_delete_bc_missing)
-    for dockey in dockeys_to_delete_bc_missing:
-        counter += 1
-        file_location, ref = remove_document_from_index(docs_index, dockey)
-        if file_location:
-            logger.info(
-                "%d/%d: Removed @%s (%s)",
-                counter,
-                total_files,
-                ref,
-                file_location,
-            )
-
-    # index all new files or changed files
-    counter = 0
-    total_files = len(files_to_index)
-    for file_path, papis_id in files_to_index:
-        counter += 1
-
-        doc_papis = papis_id_to_doc[papis_id]
-
-        if ref := await add_file_to_index(
-            file_path=file_path,
-            doc_papis=doc_papis,
-            docs_index=docs_index,
-            clients=clients,
-            settings=settings,
-        ):
-            logger.info(
-                "%d/%d: Indexed @%s (%s)",
-                counter,
-                total_files,
-                ref,
-                file_path.name,
-            )
-        else:
-            logger.warning("Failed to index file: %s", file_path)
-
-    # update metadata for papis documents that have changed
-    counter = 0
-    total_files = len(files_to_update_metadata)
-    for file_path, papis_id in files_to_update_metadata:
-        counter += 1
-
-        doc_papis = papis_id_to_doc[papis_id]
-        dockey = index_files_to_dockey.get(str(file_path))
-        doc_index = docname = docs_index.docs[dockey]
-        docname = doc_index.docname
-        if type(doc_index) is DocDetails:
-            file_last_indexed = docs_index.docs[dockey].other["file_last_indexed"]  # type: ignore (they should all be DocDetails)
-
-            if not dockey:
-                logger.warning(
-                    "File %s is not in the index, skipping metadata update",
-                    file_path,
+        # Delete files that have been deleted
+        counter = 0
+        total_files = len(dockeys_to_delete_bc_missing)
+        for dockey in dockeys_to_delete_bc_missing:
+            counter += 1
+            file_location, ref = remove_document_from_index(docs_index, dockey)
+            if file_location:
+                logger.info(
+                    "%d/%d: Removed @%s (%s)",
+                    counter,
+                    total_files,
+                    ref,
+                    file_location,
                 )
-                continue
-            if ref := await update_index_metadata(
+
+        # index all new files or changed files
+        counter = 0
+        total_files = len(files_to_index)
+        for file_path, papis_id in files_to_index:
+            counter += 1
+
+            doc_papis = papis_id_to_doc[papis_id]
+
+            if ref := await add_file_to_index(
                 file_path=file_path,
-                file_last_indexed=file_last_indexed,
                 doc_papis=doc_papis,
                 docs_index=docs_index,
-                dockey=dockey,
-                docname=docname,
                 clients=clients,
                 settings=settings,
             ):
                 logger.info(
-                    "%d/%d: Updated metadata for @%s (%s)",
+                    "%d/%d: Indexed @%s (%s)",
                     counter,
                     total_files,
                     ref,
                     file_path.name,
                 )
             else:
-                logger.warning("Failed to update metadata for file: %s", file_path)
-        else:
-            logger.warning(f"Skipped {file_path} because it is not a DocDetails object")
+                logger.warning("Failed to index file: %s", file_path)
+            checkpoint_index(docs_index, counter)
 
-    save_index(docs_index)
+        # update metadata for papis documents that have changed
+        counter = 0
+        total_files = len(files_to_update_metadata)
+        for file_path, papis_id in files_to_update_metadata:
+            counter += 1
+
+            doc_papis = papis_id_to_doc[papis_id]
+            dockey = index_files_to_dockey.get(str(file_path))
+            doc_index = docname = docs_index.docs[dockey]
+            docname = doc_index.docname
+            if type(doc_index) is DocDetails:
+                file_last_indexed = docs_index.docs[dockey].other["file_last_indexed"]  # type: ignore (they should all be DocDetails)
+
+                if not dockey:
+                    logger.warning(
+                        "File %s is not in the index, skipping metadata update",
+                        file_path,
+                    )
+                    continue
+                if ref := await update_index_metadata(
+                    file_path=file_path,
+                    file_last_indexed=file_last_indexed,
+                    doc_papis=doc_papis,
+                    docs_index=docs_index,
+                    dockey=dockey,
+                    docname=docname,
+                    clients=clients,
+                    settings=settings,
+                ):
+                    logger.info(
+                        "%d/%d: Updated metadata for @%s (%s)",
+                        counter,
+                        total_files,
+                        ref,
+                        file_path.name,
+                    )
+                else:
+                    logger.warning("Failed to update metadata for file: %s", file_path)
+            else:
+                logger.warning(
+                    f"Skipped {file_path} because it is not a DocDetails object"
+                )
+            checkpoint_index(docs_index, counter)
+    finally:
+        save_index(docs_index)
