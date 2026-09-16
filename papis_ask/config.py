@@ -9,6 +9,8 @@ DEFAULTS: PapisConfigType = {
         "evidence-k": 10,
         "max-sources": 5,
         "answer-length": "about 200 words, but can be longer",
+        "chunk-chars": 5000,
+        "overlap": 250,
         "context": True,
         "excerpt": False,
         "output": "terminal",
@@ -35,6 +37,15 @@ def _get_optional_bool(key: str) -> bool | None:
         return None
 
 
+def get_chunk_params() -> tuple[int, int]:
+    """Chunk boundaries for PaperQA parsing and personal notes, in characters."""
+    size = papis.config.getint("chunk-chars", SECTION_NAME)
+    overlap = papis.config.getint("overlap", SECTION_NAME)
+    if size <= 0 or not 0 <= overlap < size:
+        raise ValueError("ask-chunk-chars must be positive; ask-overlap must be >= 0 and < chunk-chars")
+    return size, overlap
+
+
 def create_paper_qa_settings():
     from paperqa import Settings
 
@@ -58,4 +69,10 @@ def create_paper_qa_settings():
     settings.parsing.use_doc_details = False
     if (multimodal := _get_optional_bool("multimodal")) is not None:
         settings.parsing.multimodal = multimodal
+    chunk_chars, overlap = get_chunk_params()
+    settings.parsing.reader_config = {
+        **settings.parsing.reader_config,
+        "chunk_chars": chunk_chars,
+        "overlap": overlap,
+    }
     return settings
