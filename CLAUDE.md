@@ -11,6 +11,8 @@ Read `docs/upstream-rebuild.md` for the branch/storage transition and
   at `/home/farhad/projects/papis-ask` is the live code. Use a separate worktree to
   test alternate branches without changing the active installation.
 - Reuse the project's `.venv`; do not install tests into the uv tool environment.
+  `.python-version` selects Python 3.13: the current LiteLLM distribution declares
+  Python <3.14. The personal mathunicode dependency requires Python >=3.12.
   From a worktree, run `/home/farhad/projects/papis-ask/.venv/bin/python -m pytest`.
   Running `python -m pytest` from the worktree ensures its code takes precedence
   over the editable install. `LITELLM_LOCAL_MODEL_COST_MAP=True` prevents the
@@ -50,3 +52,13 @@ fix is separately proposed in upstream PR #3. No other upstream publication is
 implied by local personal-branch work.
 
 Never add `Co-Authored-By` or AI-attribution trailers to commits or PRs.
+
+## Dependency updates
+
+Use current compatible stable releases. Update this environment with
+`uv sync --extra test --upgrade`, then run `LITELLM_LOCAL_MODEL_COST_MAP=True
+.venv/bin/python -m pytest -q` and `uv pip check --python .venv/bin/python`.
+Update the live CLI with `uv tool upgrade papis --python 3.13`, which preserves
+both editable dependencies, and check its dependency consistency too. Do not
+install test tooling into the live tool environment. Recheck LiteLLM's Python
+support before moving to a newer interpreter.

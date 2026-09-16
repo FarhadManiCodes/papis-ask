@@ -5,6 +5,7 @@ requires = ["hatchling>=1.10.0"]
 [project]
 name = "papis-ask"
 version = "0.0.1"
+requires-python = ">=3.12"
 description = "Use AI to search your Papis library"
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }
@@ -24,10 +25,8 @@ classifiers = [
   "Operating System :: POSIX",
   "Operating System :: Unix",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
-  "Programming Language :: Python :: 3.14",
   "Topic :: Utilities",
 ]
 dependencies = [

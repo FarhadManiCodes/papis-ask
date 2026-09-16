@@ -46,6 +46,26 @@ borrows only the test tooling from the project environment, without installing
 packages into the uv tool environment. Retrieval consistency also passes with
 the live dependency versions.
 
+After the rebuild, both environments were refreshed to current compatible stable
+dependencies. Python 3.13 is selected by `.python-version` because LiteLLM's
+installed distribution requires Python <3.14. Latest PaperQA on PyPI at validation
+time was 2026.8.12. Package versions are not capped to that release; future updates
+use `uv sync --extra test --upgrade` and `uv tool upgrade papis --python 3.13`,
+followed by the tests and `uv pip check`. The Python baseline is >=3.12 to match
+the personal mathunicode dependency. A passing test suite alone does not override
+dependency compatibility metadata.
+
+Final validation uses Python 3.13.15, PaperQA 2026.8.12, and Papis 0.16.1 in both
+environments. All 105 tests pass in each environment; `uv pip check` reports no
+incompatible packages. The live pickle and the original sidecars also pass the
+same content/vector/retrieval comparison under this final dependency set.
+
+The editable checkout is now on `personal-next`, and the live
+`~/.cache/papis/papers.qa` contains the verified migration. The `[ask]` setting
+`multimodal = False` was added to the symlinked Papis config in the dotfiles repo.
+The old `personal` branch, named backup branch, sidecars, and `.qa.bak` remain.
+The personal rebuild has not been pushed or proposed upstream.
+
 Measured in separate processes using the same environment and data, over five
 loads after imports (warm filesystem cache):
 
