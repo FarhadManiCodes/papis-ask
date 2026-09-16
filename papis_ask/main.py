@@ -43,6 +43,46 @@ def iter_indexable_files(doc_papis: Any) -> Iterator[Tuple[Path, FileKind]]:
         if path.suffix.lower() in FILE_ENDINGS:
             yield path, "file"
 
+    # Notes come from papis' own `notes:` key, deliberately *not* from `files:`
+    # via a `.md` entry in FILE_ENDINGS. Every paper here has a `<stem>.md`
+    # sitting beside it holding its entire extracted text (refinery's doing),
+    # so admitting `.md` from `files:` would, the first time anything registered
+    # those artifacts, index every paper a second time under a second docname.
+    for note_path in doc_papis.get_notes():
+        path = Path(note_path)
+        # papis writes `notes:` into info.yaml *before* the file exists
+        # (papis.notes.notes_path), so an entry can name a note nobody has
+        # opened yet. Without this check it becomes a phantom that permanently
+        # "needs indexing" and fails on every run.
+        if path.is_file():
+            yield path, "note"
+
+
+def warn_on_misplaced_note(doc_papis: Any) -> None:
+    """Flag a `type: note` entry whose note is in `files:` instead of `notes:`.
+
+    Notes are discovered *only* through papis' `notes:` key, so a note written
+    into `files:` is never indexed -- and it fails in the worst way available:
+    no error, no warning from papis, just a query that mysteriously never finds
+    what you wrote. Say so at the one moment the user is watching.
+
+    Called during indexing so malformed note entries get an actionable warning.
+    """
+    if doc_papis.get("type") != "note" or doc_papis.get("notes"):
+        return
+
+    stray = [f for f in doc_papis.get_files() if Path(f).suffix.lower() == ".md"]
+    if not stray:
+        return
+
+    name = Path(stray[0]).name
+    logger.warning(
+        "'%s' is type: note with %s in files: but no notes: key -- it will not "
+        "be indexed. Move it to `notes: %s`.",
+        doc_papis.get("ref") or doc_papis.get("papis_id"),
+        name,
+        name,
+    )
 
 
 def remove_document_from_index(docs_index: Any, dockey: str) -> Tuple[str, str]:
@@ -98,7 +138,48 @@ async def add_file_to_index(
     )
 
     try:
-        if chunks_payload is not None:
+        if kind == "note":
+            from paperqa.readers import chunk_text, parse_text
+            from paperqa.types import Doc
+
+            from papis_ask.config import get_chunk_params
+            from papis_ask.notes import indexable_prose
+
+            parsed = parse_text(file_path)
+            prose = indexable_prose(parsed.content)
+            if not prose:
+                # A note holding only quotes and position markers has nothing of
+                # yours in it yet. Embedding the empty remainder would pay for a
+                # vector that can never answer anything.
+                logger.info(
+                    "Note %s has no prose left after removing quotes; not indexing.",
+                    file_path,
+                )
+                return None
+
+            chunk_chars, chunk_overlap = get_chunk_params()
+            # `-note` keeps a note's docname distinct from its paper's, so both
+            # can be in the index at once. The user-visible "(note)" marker is
+            # *not* set here: `update_index_metadata` lists `citation` in
+            # `fields_to_overwrite_from_metadata`, so anything written to it is
+            # replaced by the papis title on the DocDetails upgrade. The marker
+            # is applied at render time instead -- see `output.source_ref`.
+            doc = Doc(
+                docname=f"{papis_id}-note",
+                dockey=dockey,
+                citation=papis_id,
+            )
+            texts = chunk_text(
+                parsed.model_copy(update={"content": prose}),
+                doc,
+                chunk_chars,
+                chunk_overlap,
+            )
+            added = await docs_index.aadd_texts(texts, doc, settings=settings)
+            # Same in-place dedupe as the refinery path below.
+            docname = doc.docname if added else None
+            chunk_source = "note"
+        elif chunks_payload is not None:
             from paperqa.types import Doc, Text
 
             doc = Doc(docname=papis_id, dockey=dockey, citation=papis_id)
@@ -711,6 +792,7 @@ async def _index_async(
     files_on_disk: Set[Path] = set()
     all_docs_papis = get_all_documents_in_lib() if query else docs_papis
     for doc_papis in all_docs_papis:
+        warn_on_misplaced_note(doc_papis)
         for file_path, _kind in iter_indexable_files(doc_papis):
             files_on_disk.add(file_path)
 

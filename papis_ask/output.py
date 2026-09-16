@@ -9,6 +9,12 @@ from rich.text import Text
 from rich.table import Table
 
 
+def source_ref(doc: Any) -> str:
+    """Distinguish personal notes from claims in the paper itself."""
+    ref = doc.other.get("ref", doc.other.get("papis_id"))
+    return f"{ref} (note)" if doc.other.get("chunk_source") == "note" else ref
+
+
 def to_latex_math(text: str) -> str:
     return (
         text.replace(r"\(", "$")
@@ -29,7 +35,7 @@ def transform_answer(answer: Any) -> Any:
     # First pass: collect all document names and their references and convert to latex math
     for context in answer.contexts:
         context.context = to_latex_math(context.context)
-        ref = context.text.doc.other.get("ref", context.text.doc.other.get("papis_id"))
+        ref = source_ref(context.text.doc)
         papis_id_to_ref[context.text.name.split()[0]] = ref
 
     # Replace references in the answer text
@@ -98,9 +104,7 @@ def to_terminal_output(
     references = []
     for answer_context in answer.contexts:
         filename = Path(answer_context.text.doc.file_location).name
-        ref = answer_context.text.doc.other.get(
-            "ref", answer_context.text.doc.other.get("papis_id")
-        )
+        ref = source_ref(answer_context.text.doc)
         pages = answer_context.text.doc.pages
         reference_line = Text("- ")
         reference_line.append(f"@{ref}, p. {pages}", style="blue")
@@ -135,9 +139,7 @@ def to_terminal_output(
 
             # Print context
             filename = Path(answer_context.text.doc.file_location).name
-            ref = answer_context.text.doc.other.get(
-                "ref", answer_context.text.doc.other.get("papis_id")
-            )
+            ref = source_ref(answer_context.text.doc)
             pages = answer_context.text.doc.pages
             title = Text()
             title.append(f"@{ref}, p. {pages}", style="blue bold")
@@ -227,9 +229,7 @@ def to_markdown_output(
     markdown.append("## References\n")
     for answer_context in answer.contexts:
         filename = Path(answer_context.text.doc.file_location).name
-        ref = answer_context.text.doc.other.get(
-            "ref", answer_context.text.doc.other.get("papis_id")
-        )
+        ref = source_ref(answer_context.text.doc)
         pages = answer_context.text.doc.pages
         markdown.append(f"- [@{ref}, p. {pages}] ({filename})")
 
@@ -240,9 +240,7 @@ def to_markdown_output(
         for answer_context in answer.contexts:
             # Context metadata
             filename = Path(answer_context.text.doc.file_location).name
-            ref = answer_context.text.doc.other.get(
-                "ref", answer_context.text.doc.other.get("papis_id")
-            )
+            ref = source_ref(answer_context.text.doc)
             pages = answer_context.text.doc.pages
 
             markdown.append(f"## @{ref}, p. {pages} ({filename})\n")
