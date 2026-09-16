@@ -51,7 +51,9 @@ def get_chunk_params() -> tuple[int, int]:
     size = papis.config.getint("chunk-chars", SECTION_NAME)
     overlap = papis.config.getint("overlap", SECTION_NAME)
     if size <= 0 or not 0 <= overlap < size:
-        raise ValueError("ask-chunk-chars must be positive; ask-overlap must be >= 0 and < chunk-chars")
+        raise ValueError(
+            "ask-chunk-chars must be positive; ask-overlap must be >= 0 and < chunk-chars"
+        )
     return size, overlap
 
 

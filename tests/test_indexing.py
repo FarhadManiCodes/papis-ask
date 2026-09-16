@@ -14,11 +14,17 @@ from papis_ask import main
 
 def document(key, path):
     doc = DocDetails(
-        docname=key, dockey=key, citation=key, file_location=str(path),
+        docname=key,
+        dockey=key,
+        citation=key,
+        file_location=str(path),
         other={"ref": key, "file_last_indexed": 100, "metadata_last_updated": 100},
     )
     # As in update_index_metadata, apply identity after DocDetails validation.
     doc.docname = key
+    doc.dockey = key
+    doc.doc_id = key
+    doc.key = key
     return doc
 
 
@@ -43,9 +49,15 @@ def library(tmp_path, monkeypatch):
     index = Docs(docs=docs, docnames=set(docs))
     saved = []
     monkeypatch.setattr(main, "get_index", lambda: index)
-    monkeypatch.setattr(main, "save_index", lambda value: saved.append(pickle.loads(pickle.dumps(value))))
+    monkeypatch.setattr(
+        main,
+        "save_index",
+        lambda value: saved.append(pickle.loads(pickle.dumps(value))),
+    )
     monkeypatch.setattr(main, "get_all_documents_in_lib", lambda: papers)
-    monkeypatch.setattr(main.papis.cli, "handle_doc_folder_or_query", lambda *a: papers[:1])
+    monkeypatch.setattr(
+        main.papis.cli, "handle_doc_folder_or_query", lambda *a: papers[:1]
+    )
     monkeypatch.setattr(main, "determine_file_status", lambda *a: (False, False))
     monkeypatch.setattr(main, "create_paper_qa_settings", lambda: Settings())
 

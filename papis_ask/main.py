@@ -928,7 +928,9 @@ async def _index_async(
             doc_papis = papis_id_to_doc[papis_id]
             dockey = index_files_to_dockey.get(str(file_path))
             if dockey not in docs_index.docs:
-                logger.warning("File %s is not in the index, skipping metadata update", file_path)
+                logger.warning(
+                    "File %s is not in the index, skipping metadata update", file_path
+                )
                 continue
             doc_index = docs_index.docs[dockey]
             docname = doc_index.docname

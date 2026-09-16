@@ -105,7 +105,7 @@ async def parse_papis_to_doc_details(
             "chunk_overlap": chunk_overlap,
         }
     ).items():
-        if key not in doc_details.model_fields:
+        if key not in DocDetails.model_fields:
             if key in doc_details.other:
                 doc_details.other[key] = [doc_details.other[key], value]
             else:
