@@ -1,0 +1,117 @@
+"""The seam between papis-ask and paper-refinery.
+
+Not a test of refinery -- refinery has its own suite, and this package never
+imports it. What's tested here is the part papis-ask actually owns: locating a
+paper's manifest, deciding when to trust it, and the chunk-name round trip
+between the names we write onto paper-qa Texts and the pages we later read back
+off them for citations.
+"""
+
+import json
+import os
+
+import pytest
+
+from papis_ask.refinery import (
+    SUPPORTED_SCHEMA_VERSION,
+    chunk_name,
+    chunks_json_path,
+    read_refinery_chunks,
+)
+
+
+@pytest.fixture
+def pdf(tmp_path):
+    p = tmp_path / "paper.pdf"
+    p.write_bytes(b"%PDF-1.4")
+    return p
+
+
+def write_manifest(pdf, chunks, schema_version=SUPPORTED_SCHEMA_VERSION):
+    """Write a chunks.json next to `pdf`, newer than it (as refinery would).
+
+    `schema_version=None` omits the field entirely, simulating a manifest from
+    before the field was introduced.
+    """
+    path = chunks_json_path(pdf)
+    payload = {"chunks": chunks}
+    if schema_version is not None:
+        payload["schema_version"] = schema_version
+    path.write_text(json.dumps(payload))
+    return path
+
+
+class TestLocatingTheManifest:
+    """Which file's chunks belong to which document."""
+
+    def test_pdf_maps_to_its_manifest(self, tmp_path):
+        assert chunks_json_path(tmp_path / "paper.pdf").name == "paper.chunks.json"
+
+    def test_uppercase_extension_still_recognised(self, tmp_path):
+        assert chunks_json_path(tmp_path / "paper.PDF").name == "paper.chunks.json"
+
+    @pytest.mark.parametrize("name", ["paper.html", "paper.txt"])
+    def test_non_pdf_has_no_manifest(self, tmp_path, name):
+        """Refinery only refines PDFs, and names the manifest after the stem.
+
+        Regression: this used to be a bare `with_suffix()`, which *replaces* the
+        extension -- so a papis entry holding both `paper.pdf` and `paper.html`
+        had both resolve to the same `paper.chunks.json`.
+        """
+        assert chunks_json_path(tmp_path / name) is None
+
+    def test_html_never_picks_up_a_sibling_pdfs_chunks(self, tmp_path, pdf):
+        """The regression above, end to end.
+
+        This is what actually happened to mastrone-2021: the HTML was indexed
+        with the PDF's refined chunks, its own content never parsed, and the same
+        text sat in the index twice under two docnames.
+        """
+        write_manifest(pdf, [{"text": "content of the PDF", "index": 0}])
+        html = tmp_path / "paper.html"
+        html.write_text("<html>entirely different content</html>")
+
+        assert read_refinery_chunks(html) is None
+
+
+class TestWhenToTrustTheManifest:
+    """papis-ask's own fallback rules: anything suspect means use paper-qa."""
+
+    def test_well_formed_manifest_is_used(self, pdf):
+        write_manifest(pdf, [{"text": "hello", "index": 0}])
+        payload = read_refinery_chunks(pdf)
+        assert payload["chunks"][0]["text"] == "hello"
+
+    def test_missing_manifest_falls_back(self, pdf):
+        assert read_refinery_chunks(pdf) is None
+
+    def test_manifest_older_than_the_pdf_is_stale(self, pdf):
+        """The PDF was replaced after it was refined, so the chunks describe
+        content that is no longer there."""
+        manifest = write_manifest(pdf, [{"text": "hello", "index": 0}])
+        os.utime(manifest, (1, 1))
+        assert read_refinery_chunks(pdf) is None
+
+    def test_malformed_manifest_falls_back(self, pdf):
+        chunks_json_path(pdf).write_text("{not json")
+        assert read_refinery_chunks(pdf) is None
+
+    def test_empty_manifest_falls_back(self, pdf):
+        write_manifest(pdf, [])
+        assert read_refinery_chunks(pdf) is None
+
+    def test_unrecognized_schema_version_falls_back(self, pdf):
+        """A future incompatible refinery release bumps schema_version -- this
+        must be caught here, not surface as a KeyError/TypeError from reading a
+        field that no longer means what this code assumes."""
+        write_manifest(pdf, [{"text": "hello", "index": 0}], schema_version=999)
+        assert read_refinery_chunks(pdf) is None
+
+    def test_missing_schema_version_is_trusted(self, pdf):
+        """Predates the field's introduction (paper-refinery < v0.2.0) -- trusted,
+        not rejected: confirmed live against paper-refinery's own pre-versioning
+        sample manifests, which are otherwise perfectly readable. Rejecting these
+        would silently regress every paper in an existing library refined before
+        the field existed back to pypdf quality."""
+        write_manifest(pdf, [{"text": "hello", "index": 0}], schema_version=None)
+        assert read_refinery_chunks(pdf) is not None

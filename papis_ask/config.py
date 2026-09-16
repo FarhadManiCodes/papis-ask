@@ -37,6 +37,14 @@ def _get_optional_bool(key: str) -> bool | None:
         return None
 
 
+def get_embedding_model() -> str:
+    """Effective embedding model, including PaperQA defaults when unset."""
+    from paperqa import Settings
+
+    configured = _get_optional_string("embedding")
+    return configured if configured is not None else Settings().embedding
+
+
 def get_chunk_params() -> tuple[int, int]:
     """Chunk boundaries for PaperQA parsing and personal notes, in characters."""
     size = papis.config.getint("chunk-chars", SECTION_NAME)
