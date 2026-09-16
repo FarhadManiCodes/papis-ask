@@ -9,9 +9,11 @@ off them for citations.
 
 import json
 import os
+from types import SimpleNamespace
 
 import pytest
 
+from papis_ask.output import context_pages
 from papis_ask.refinery import (
     SUPPORTED_SCHEMA_VERSION,
     chunk_name,
@@ -115,3 +117,32 @@ class TestWhenToTrustTheManifest:
         the field existed back to pypdf quality."""
         write_manifest(pdf, [{"text": "hello", "index": 0}], schema_version=None)
         assert read_refinery_chunks(pdf) is not None
+
+
+class TestChunkNameRoundTrip:
+    """chunk_name() writes the name onto a Text; context_pages() reads it back
+    to cite a page. Nothing else parses these names, so the only thing that has
+    to hold is that the two agree -- if they ever drift, citations silently lose
+    their page numbers (which is exactly how "p. None" reached the output)."""
+
+    def as_context(self, name):
+        return SimpleNamespace(text=SimpleNamespace(name=name))
+
+    @pytest.mark.parametrize(
+        "page_start,page_end,expected",
+        [
+            (3, 5, "3-5"),
+            (3, 3, "3"),
+            (1, 1, "1"),
+            (19, 22, "19-22"),
+        ],
+    )
+    def test_pages_survive_the_round_trip(self, page_start, page_end, expected):
+        name = chunk_name("Kalman_1960", 0, page_start, page_end)
+        assert context_pages(self.as_context(name)) == expected
+
+    def test_a_chunk_with_no_pages_round_trips_to_no_pages(self):
+        """Refinery couldn't attribute a page (or paper-qa parsed it), so there
+        is nothing to cite -- and we must not invent one."""
+        name = chunk_name("Kalman_1960", 7, None, None)
+        assert context_pages(self.as_context(name)) is None

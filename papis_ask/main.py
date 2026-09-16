@@ -636,6 +636,11 @@ def cli():
     help="Show context including excerpt for each source.",
     default=lambda: papis.config.getboolean("excerpt", SECTION_NAME),
 )
+@papis.cli.bool_flag(
+    "--math/--no-math",
+    help="Render LaTeX math as readable Unicode in terminal output.",
+    default=lambda: papis.config.getboolean("render-math", SECTION_NAME),
+)
 def query_cmd(
     query: str,
     output: str,
@@ -644,10 +649,11 @@ def query_cmd(
     answer_length: str,
     context: bool,
     excerpt: bool,
+    math: bool,
 ) -> None:
     """Ask questions about your library."""
     logger.debug(
-        f"Starting 'ask' with query={query}, output={output}, evidence_k={evidence_k}, max_sources={max_sources}, answer_length={answer_length}, context={context}, excerpt={excerpt} "
+        f"Starting 'ask' with query={query}, output={output}, evidence_k={evidence_k}, max_sources={max_sources}, answer_length={answer_length}, context={context}, excerpt={excerpt}, math={math} "
     )
 
     asyncio.run(
@@ -659,6 +665,7 @@ def query_cmd(
             answer_length,
             context,
             excerpt,
+            math,
         )
     )
 
@@ -671,6 +678,7 @@ async def _query_async(
     answer_length: str,
     context: bool,
     excerpt: bool,
+    math: bool,
 ) -> None:
     """Async implementation of query command."""
     settings = create_paper_qa_settings()
@@ -694,7 +702,7 @@ async def _query_async(
             output = to_markdown_output(answer, context, excerpt)
             print(output)
         else:
-            to_terminal_output(answer, context, excerpt)
+            to_terminal_output(answer, context, excerpt, math)
 
     else:
         logger.info(

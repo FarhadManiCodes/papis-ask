@@ -36,7 +36,11 @@ dependencies = [
   "numpy",
   "click-default-group>=1.2.4",
   "rich>=13.9.0",
+  "mathunicode",
 ]
+
+[tool.uv.sources]
+mathunicode = { path = "../mathunicode", editable = true }
 
 [project.optional-dependencies]
 test = ["pytest>=8.0.0", "pytest-asyncio>=0.25.0", "pytest-mock>=3.10.0"]

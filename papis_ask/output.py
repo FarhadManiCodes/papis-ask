@@ -9,10 +9,48 @@ from rich.text import Text
 from rich.table import Table
 
 
+_CHUNK_PAGES_RE = re.compile(r"\bpages\s+(\d+(?:-\d+)?)\s*$")
+
+
+def context_pages(context: Any) -> str | None:
+    """Where in the document this specific chunk came from, e.g. "3" or "3-5".
+
+    Read off the chunk's own name (refinery stamps a page range into it via
+    `chunk_name`), NOT from `doc.pages` -- that's the bibliographic field from
+    info.yaml, i.e. where the *article* sits in its journal. Using it here
+    printed the same page range on every chunk of a paper, told you nothing
+    about where the evidence actually was, and rendered "p. None" for the many
+    papers with no `pages:` in info.yaml.
+
+    None when the chunk has no page information at all (some parsers provide only
+    chunk numbers, and HTML has no pages to begin with), in which
+    case callers omit the page reference rather than inventing one.
+    """
+    match = _CHUNK_PAGES_RE.search(context.text.name or "")
+    return match.group(1) if match else None
+
+
 def source_ref(doc: Any) -> str:
-    """Distinguish personal notes from claims in the paper itself."""
+    """The ref to display for a chunk, marked when it came from your own note.
+
+    The marker cannot live on `Doc.citation`: `update_index_metadata` sets
+    `fields_to_overwrite_from_metadata = {"citation"}`, so anything put there is
+    replaced by the papis title during the DocDetails upgrade. Rendering is the
+    only place the distinction survives -- and it has to survive somewhere,
+    because an answer that cites your speculation exactly like the authors'
+    claims is worse than one that cannot see your notes at all.
+    """
     ref = doc.other.get("ref", doc.other.get("papis_id"))
-    return f"{ref} (note)" if doc.other.get("chunk_source") == "note" else ref
+    if doc.other.get("chunk_source") == "note":
+        return f"{ref} (note)"
+    return ref
+
+
+def format_source(context: Any) -> str:
+    """Render a chunk's citation: `@ref, p. 3`, or `@ref` when it has no pages."""
+    ref = source_ref(context.text.doc)
+    pages = context_pages(context)
+    return f"@{ref}, p. {pages}" if pages else f"@{ref}"
 
 
 def to_latex_math(text: str) -> str:
@@ -35,18 +73,20 @@ def transform_answer(answer: Any) -> Any:
     # First pass: collect all document names and their references and convert to latex math
     for context in answer.contexts:
         context.context = to_latex_math(context.context)
-        ref = source_ref(context.text.doc)
-        papis_id_to_ref[context.text.name.split()[0]] = ref
+        papis_id_to_ref[context.text.name.split()[0]] = source_ref(context.text.doc)
 
     # Replace references in the answer text
     # Pattern: (papis_id pages X-N) -> [@ref, p. X-N]
     def replace_citation(match):
         papis_id = match.group(1)
         if papis_id not in papis_id_to_ref:
-            # Ordinary parentheses, e.g. f(x) or (EKF), also match the pattern.
+            # Not a real citation marker -- ordinary parenthesized text, e.g.
+            # math like "u_syn(x)" or "(k+1)", can otherwise match the same
+            # pattern. Only known source docnames are real citations, so
+            # leave anything else untouched instead of mangling it.
             return match.group(0)
-        pages = match.group(2)
 
+        pages = match.group(2)
         ref = papis_id_to_ref[papis_id]
         # Format pages as p. X-N
         formatted_pages = f"p. {pages}" if pages else ""
@@ -67,6 +107,7 @@ def to_terminal_output(
     answer: Any,
     context: bool,
     excerpt: bool,
+    math: bool = False,
 ) -> None:
     """Format and print the answer with optional context and excerpts."""
     answer = transform_answer(answer)
@@ -82,7 +123,13 @@ def to_terminal_output(
         )
     )
 
-    # Create a Text object for the answer
+    # Create a Text object for the answer. LaTeX -> Unicode is terminal-only
+    # (never applied to markdown/json output, which keep real LaTeX source
+    # for downstream tools that render it themselves).
+    if math:
+        from mathunicode import convert_math_spans
+
+        answer.answer = convert_math_spans(answer.answer)
     answer_text = Text(answer.answer)
 
     # Define a regex pattern for citations like [@XYZ]
@@ -104,10 +151,8 @@ def to_terminal_output(
     references = []
     for answer_context in answer.contexts:
         filename = Path(answer_context.text.doc.file_location).name
-        ref = source_ref(answer_context.text.doc)
-        pages = answer_context.text.doc.pages
         reference_line = Text("- ")
-        reference_line.append(f"@{ref}, p. {pages}", style="blue")
+        reference_line.append(format_source(answer_context), style="blue")
         reference_line.append(f" ({filename})")
         references.append(reference_line)
 
@@ -124,9 +169,15 @@ def to_terminal_output(
 
     # Format context if requested
     if context or excerpt:
+        if math:
+            from mathunicode import convert_math_spans
         for answer_context in answer.contexts:
             # Format summary
             summary = answer_context.context
+            excerpt_text = answer_context.text.text
+            if math:
+                summary = convert_math_spans(summary)
+                excerpt_text = convert_math_spans(excerpt_text)
             summary_table = Table(show_header=False, box=None)
             summary_table.add_row(Text("Summary:", style="bold"), Text(summary))
             summary_table.add_row(
@@ -134,15 +185,13 @@ def to_terminal_output(
             )
             if excerpt:
                 summary_table.add_row(
-                    Text("Excerpt:", style="bold"), Text(answer_context.text.text)
+                    Text("Excerpt:", style="bold"), Text(excerpt_text)
                 )
 
             # Print context
             filename = Path(answer_context.text.doc.file_location).name
-            ref = source_ref(answer_context.text.doc)
-            pages = answer_context.text.doc.pages
             title = Text()
-            title.append(f"@{ref}, p. {pages}", style="blue bold")
+            title.append(format_source(answer_context), style="blue bold")
             title.append(f" ({filename})", style="white")
             console.print(
                 Panel(
@@ -161,14 +210,14 @@ def to_json_output(answer: Any) -> str:
         "references": [
             {
                 "papis_id": context.text.doc.other.get("papis_id"),
-                "pages": context.text.doc.pages,
+                "pages": context_pages(context),
             }
             for context in answer.contexts
         ],
         "contexts": [
             {
                 "papis_id": context.text.doc.other.get("papis_id"),
-                "pages": context.text.doc.pages,
+                "pages": context_pages(context),
                 "summary": context.context,
                 "score": context.score,
                 "excerpt": context.text.text,
@@ -229,9 +278,7 @@ def to_markdown_output(
     markdown.append("## References\n")
     for answer_context in answer.contexts:
         filename = Path(answer_context.text.doc.file_location).name
-        ref = source_ref(answer_context.text.doc)
-        pages = answer_context.text.doc.pages
-        markdown.append(f"- [@{ref}, p. {pages}] ({filename})")
+        markdown.append(f"- [{format_source(answer_context)}] ({filename})")
 
     # Context section (only if requested)
     if context or excerpt:
@@ -240,10 +287,7 @@ def to_markdown_output(
         for answer_context in answer.contexts:
             # Context metadata
             filename = Path(answer_context.text.doc.file_location).name
-            ref = source_ref(answer_context.text.doc)
-            pages = answer_context.text.doc.pages
-
-            markdown.append(f"## @{ref}, p. {pages} ({filename})\n")
+            markdown.append(f"## {format_source(answer_context)} ({filename})\n")
 
             # Summary
             markdown.append(to_latex_math(answer_context.context) + "\n")
