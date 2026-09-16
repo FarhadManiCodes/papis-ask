@@ -122,7 +122,9 @@ $ papis ask index
 
 Note that this can take a long time if you're indexing your whole library. Progress is checkpointed every 25 documents and saved when the command exits (including on Ctrl-C), so it's possible to interrupt the command and continue later.
 
-You can also index specific documents (note that this will remove documents that *don't* match the query from the index):
+You can also index specific documents. In this personal fork, unmatched documents
+remain indexed, including when using `--force` with a query. Entries removed from
+the Papis library are still pruned:
 
 ```bash
 $ papis ask index "author:einstein"
@@ -162,6 +164,40 @@ Make sure your papis library's cache is up-to-date. Run `papis cache reset` when
 ### Semantic Scholar
 
 Papis-ask queries Semantic Scholar for some metadata. This service is quite strictly rate-limited. Getting your own API key can help, though unfortunately there seems to be a long waitlist. Otherwise, rerunning the command is the only option at the moment.
+
+## Personal fork additions
+
+This branch keeps upstream's atomic pickle storage, float32 embeddings, checkpointing,
+and enrichment configuration. See [the personal branch notes](docs/upstream-rebuild.md)
+for storage, compatibility, and development details.
+
+- Fresh `paper.chunks.json` manifests supply refinery's prebuilt chunks; see
+  [the refinery integration](docs/paper-refinery-integration.md). Missing or stale
+  manifests fall back to PaperQA parsing. `index --no-refine` (alias `--raw`) skips
+  manifests; use `--force` to replace already-indexed chunks.
+- `ask-chunk-chars = 5000` and `ask-overlap = 250` control PaperQA parsing and personal
+  notes, in characters. Refinery manifests already define their own boundaries and
+  ignore these settings. Size must be positive and overlap must be smaller than size.
+- Notes registered under Papis's `notes:` field are indexed after removing fenced
+  quotes and HTML comments. Markdown under `files:` is ignored. Note citations are
+  labeled `(note)` in terminal and Markdown output.
+- `--math` / `--no-math` and `ask-render-math` control terminal math rendering through
+  the sibling `mathunicode` project. Markdown and JSON retain LaTeX.
+- Evidence references use chunk page information when available. Unknown pages are
+  omitted in terminal/Markdown and represented as `null` in JSON, rather than using
+  the article's bibliographic page range.
+- Indexing detects changes to the embedding model, refinery manifest, and applicable
+  chunk settings. Known mismatches trigger re-embedding, which may cost API quota.
+  Older entries without settings stamps are not rebuilt on a guess.
+
+Upstream leaves multimodal enrichment enabled by default. For this refinery-based
+workflow, set `multimodal = False` under `[ask]` (equivalently `ask-multimodal = False`
+under `[settings]`) to disable PaperQA's separate image enrichment during fallback
+parsing. This is a user configuration choice, not a hardcoded override.
+
+The personal dependency `mathunicode` must be available. In the normal sibling
+checkout layout, `uv` uses `../mathunicode`; an isolated worktree can use the existing
+project Python environment directly for tests.
 
 ## Screenshots
 
