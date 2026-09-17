@@ -84,3 +84,39 @@ def test_json_keeps_original_answer():
     text = "Use f(x) (abc123 pages 6)."
     result = json.loads(to_json_output(make_answer(text)))
     assert result["answer"] == text
+
+
+def math_answer():
+    answer = make_answer(r"Use $\nabla \cdot \mathbf{a}$.")
+    answer.contexts[0].context = r"Summary: $\oint_C a_1 ds = \iint_A a_{2,1} dA$."
+    answer.contexts[0].text.text = r"Excerpt: $\frac{\partial g}{\partial x}$."
+    return answer
+
+
+def test_terminal_renders_math_in_answer_summary_and_excerpt(capsys):
+    to_terminal_output(math_answer(), context=True, excerpt=True, math=True)
+    result = capsys.readouterr().out
+    for rendered in ("∇", "∮", "∬", "∂g/∂x"):
+        assert rendered in result
+    for command in (r"\nabla", r"\oint", r"\iint", r"\frac"):
+        assert command not in result
+
+
+def test_no_math_preserves_latex(capsys):
+    to_terminal_output(math_answer(), context=True, excerpt=True, math=False)
+    result = capsys.readouterr().out
+    for command in (r"\nabla", r"\oint", r"\frac"):
+        assert command in result
+
+
+@pytest.mark.parametrize("output", [to_json_output, to_markdown_output])
+def test_exports_preserve_summary_latex(output):
+    answer = math_answer()
+    if output is to_json_output:
+        result = json.loads(output(answer))
+        assert result["contexts"][0]["summary"] == answer.contexts[0].context
+        assert result["contexts"][0]["excerpt"] == answer.contexts[0].text.text
+    else:
+        result = output(answer, context=True, excerpt=True)
+        assert answer.contexts[0].context in result
+        assert answer.contexts[0].text.text in result

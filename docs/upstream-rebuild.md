@@ -60,11 +60,12 @@ environments. All 105 tests pass in each environment; `uv pip check` reports no
 incompatible packages. The live pickle and the original sidecars also pass the
 same content/vector/retrieval comparison under this final dependency set.
 
-The editable checkout is now on `personal-next`, and the live
+The editable checkout was initially activated on `personal-next`, and the live
 `~/.cache/papis/papers.qa` contains the verified migration. The `[ask]` setting
 `multimodal = False` was added to the symlinked Papis config in the dotfiles repo.
-The old `personal` branch, named backup branch, sidecars, and `.qa.bak` remain.
-The personal rebuild has not been pushed or proposed upstream.
+At that point the old `personal` branch, named backup branch, sidecars, and `.qa.bak` remained.
+At initial activation, the personal rebuild had not yet been pushed. Only the
+citation fix is proposed upstream.
 
 Measured in separate processes using the same environment and data, over five
 loads after imports (warm filesystem cache):
@@ -80,3 +81,48 @@ after every 25 processed files and on exit. Both load the whole library into RAM
 Sidecars could support incremental writes and per-paper recovery, but the old
 implementation did not provide incremental writes. The pickle is the simpler,
 smaller and faster choice for this measured workload, with less upstream divergence.
+
+## Summary math follow-up (`fix/summary-math`)
+
+Live validation found that PaperQA 2026.8.12's `llm_parse_json` repair corrupts
+already-valid JSON containing LaTeX backslashes. For example, a correctly encoded
+`$\nabla \cdot \mathbf{a}$` no longer round-trips. Some generated summaries also
+omit math delimiters, which the terminal's span-only converter needs.
+
+Use PaperQA's supported `prompts.use_json = False` summary mode, keeping its
+existing summary instructions and relevance-score extraction. A short prefix
+asks for plain text, literal LaTeX backslashes, and `$...$` / `$$...$$` delimiters.
+This bypasses the defective parser without patching PaperQA or changing models.
+The native plain-text path retains the final scoring line in the summary, as
+well as exposing the extracted score separately. Delimiter compliance remains
+model-dependent; the renderer does not guess equations from arbitrary prose.
+
+This setting controls the internal evidence-summary format, not `--output json`:
+JSON and Markdown exports still preserve LaTeX. Terminal Unicode conversion stays
+optional. No reindexing, data migration, dependency reinstall, or model upgrade is
+required. Revisit this workaround once PaperQA fixes its parser; reverting the
+mode must include tests for exact LaTeX round-tripping.
+
+Regression coverage runs the real PaperQA evidence path with a synthetic model,
+checking equations, relevance scores and irrelevant-evidence filtering. Output
+tests cover terminal conversion, `--no-math`, and LaTeX-preserving exports.
+Before the migration-only tests were retired, all 114 tests passed in both the
+project and live Papis environments. A live Aris
+query using the unchanged summary model produced four summaries with intact
+LaTeX; replaying each through the terminal converter left no raw commands or
+math delimiters. This is formatting validation, not a model-quality benchmark.
+A second live question rendered summary equations directly in the terminal; the
+answer model timed out twice before succeeding on retry.
+
+## Promotion to `personal` (2026-09-17)
+
+The rebuilt branch plus the summary-math fix replaces the old local `personal`
+branch. The live editable checkout now uses `personal`; the old history remains
+at `backup/personal-before-upstream-2026-09-16`. `personal-next` remains as the
+pre-summary-fix checkpoint. The rebuilt `personal` is also published to the fork;
+upstream and its citation PR remain separate.
+
+The one-time migration commit was subsequently removed from `personal` history,
+including its helper and six dedicated tests. The current 108-test suite passes
+in both the project and live Papis environments. Runtime code and the existing
+index are unchanged; no re-embedding is needed for this history cleanup.

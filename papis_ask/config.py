@@ -62,6 +62,19 @@ def create_paper_qa_settings():
 
     settings = Settings()
 
+    # PaperQA's JSON repair can corrupt even valid escaped LaTeX (2026.8.12).
+    # Its supported plain-text mode preserves equations and still extracts the
+    # trailing relevance score. Keep this independent of terminal rendering:
+    # summaries feed the answer model and JSON/Markdown exports too.
+    settings.prompts.use_json = False
+    settings.prompts.summary = (
+        "Write the summary as plain text, not JSON. "
+        "Preserve LaTeX equations, enclosing every math expression in $...$ "
+        "or $$...$$. Use literal LaTeX backslashes, not JSON-escaped backslashes. "
+        "Keep the requested relevance score on its own final line.\n\n"
+        + settings.prompts.summary
+    )
+
     if (llm := _get_optional_string("llm")) is not None:
         settings.llm = llm
     if (summary_llm := _get_optional_string("summary-llm")) is not None:
