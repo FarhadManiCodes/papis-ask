@@ -67,6 +67,9 @@ class TestNothingChanged:
     def test_a_current_paper_is_left_alone(self, paper):
         assert status(paper) == (False, False)
 
+    def test_cleaned_html_tracks_chunk_settings(self, paper):
+        assert status(paper, chunk_source="html", chunk_chars=1000, chunk_overlap=50)[0]
+
 
 class TestFilesChanged:
     def test_a_modified_pdf_is_reindexed(self, paper):

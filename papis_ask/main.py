@@ -179,6 +179,23 @@ async def add_file_to_index(
             # Same in-place dedupe as the refinery path below.
             docname = doc.docname if added else None
             chunk_source = "note"
+        elif file_path.suffix.lower() == ".html":
+            from paperqa.readers import chunk_text
+            from paperqa.types import Doc
+            from papis_ask.config import get_chunk_params
+            from papis_ask.html import parse_html
+
+            parsed = parse_html(file_path)
+            if not parsed.content.strip():
+                logger.info(
+                    "HTML %s has no article text after filtering; skipping.", file_path
+                )
+                return None
+            doc = Doc(docname=papis_id, dockey=dockey, citation=papis_id)
+            texts = chunk_text(parsed, doc, *get_chunk_params())
+            added = await docs_index.aadd_texts(texts, doc, settings=settings)
+            docname = doc.docname if added else None
+            chunk_source = "html"
         elif chunks_payload is not None:
             from paperqa.types import Doc, Text
 
@@ -564,7 +581,7 @@ def determine_file_status(
     # Refinery-chunked papers take their boundaries from chunks.json (already
     # watched above) and ignore these settings entirely, so re-chunking them on a
     # chunk-chars change would be pure wasted spend.
-    if other.get("chunk_source") in ("pypdf", "note"):
+    if other.get("chunk_source") in ("pypdf", "note", "html"):
         stored_chunking = (other.get("chunk_chars"), other.get("chunk_overlap"))
         current_chunking = get_chunk_params()
         if None not in stored_chunking and stored_chunking != current_chunking:
@@ -600,21 +617,21 @@ def cli():
     "--output",
     "-o",
     help="Output format.",
-    type=str,
-    default=lambda: papis.config.getint("output", SECTION_NAME),
+    type=click.Choice(["terminal", "markdown", "json"]),
+    default=lambda: papis.config.getstring("output", SECTION_NAME),
 )
 @click.option(
     "--evidence-k",
     "-e",
     help="Number of evidence pieces to retrieve.",
-    type=int,
+    type=click.IntRange(min=1),
     default=lambda: papis.config.getint("evidence-k", SECTION_NAME),
 )
 @click.option(
     "--max-sources",
     "-m",
     help="Maximum number of sources for an answer.",
-    type=int,
+    type=click.IntRange(min=1),
     default=lambda: papis.config.getint("max-sources", SECTION_NAME),
 )
 @click.option(
@@ -652,6 +669,8 @@ def query_cmd(
     math: bool,
 ) -> None:
     """Ask questions about your library."""
+    if evidence_k <= max_sources:
+        raise click.UsageError("--evidence-k must be greater than --max-sources")
     logger.debug(
         f"Starting 'ask' with query={query}, output={output}, evidence_k={evidence_k}, max_sources={max_sources}, answer_length={answer_length}, context={context}, excerpt={excerpt}, math={math} "
     )
@@ -687,8 +706,7 @@ async def _query_async(
     settings.answer.answer_length = answer_length
 
     if evidence_k <= max_sources:
-        logger.error("evidence_k must be larger than max_source")
-        return
+        raise click.UsageError("--evidence-k must be greater than --max-sources")
 
     docs_index = get_index()
 

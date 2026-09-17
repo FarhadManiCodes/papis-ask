@@ -171,6 +171,22 @@ This branch keeps upstream's atomic pickle storage, float32 embeddings, checkpoi
 and enrichment configuration. See [the personal branch notes](docs/upstream-rebuild.md)
 for storage, compatibility, and development details.
 
+Answers distinguish personal-note evidence from publication excerpts. Under
+`[ask]`, `evidence-score-cutoff = 3` excludes weak summaries from the answer
+model (valid range 0–10; lower it to admit more marginal evidence). Retrieved
+summaries remain inspectable, but the References list contains only sources
+actually cited by the answer, with duplicate source/page entries collapsed.
+
+Grouped citations and `chunk N` note references are formatted as Papis refs.
+Terminal/Markdown summaries hide the model's trailing score because it is already
+displayed separately; JSON also exposes it as a separate field. JSON answer text
+remains the original PaperQA answer, retaining LaTeX and its original references.
+
+HTML indexing removes explicitly marked navigation, forms and site landmarks;
+it does not guess from arbitrary CSS classes or drop scientific sidebars. This
+applies to newly indexed/reindexed HTML only. Existing indexes are not silently
+rebuilt when installing these query/output changes.
+
 - Fresh `paper.chunks.json` manifests supply refinery's prebuilt chunks; see
   [the refinery integration](docs/paper-refinery-integration.md). Missing or stale
   manifests fall back to PaperQA parsing. `index --no-refine` (alias `--raw`) skips

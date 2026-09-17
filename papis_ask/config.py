@@ -7,6 +7,7 @@ SECTION_NAME = "ask"
 DEFAULTS: PapisConfigType = {
     SECTION_NAME: {
         "evidence-k": 10,
+        "evidence-score-cutoff": 3,
         "max-sources": 5,
         "answer-length": "about 200 words, but can be longer",
         "chunk-chars": 5000,
@@ -62,6 +63,14 @@ def create_paper_qa_settings():
 
     settings = Settings()
 
+    from papis_ask.evidence import serialize_evidence
+
+    cutoff = papis.config.getint("evidence-score-cutoff", SECTION_NAME)
+    if not 0 <= cutoff <= 10:
+        raise ValueError("ask-evidence-score-cutoff must be between 0 and 10")
+    settings.answer.evidence_relevance_score_cutoff = cutoff
+    settings.custom_context_serializer = serialize_evidence
+
     # PaperQA's JSON repair can corrupt even valid escaped LaTeX (2026.8.12).
     # Its supported plain-text mode preserves equations and still extracts the
     # trailing relevance score. Keep this independent of terminal rendering:
@@ -71,8 +80,27 @@ def create_paper_qa_settings():
         "Write the summary as plain text, not JSON. "
         "Preserve LaTeX equations, enclosing every math expression in $...$ "
         "or $$...$$. Use literal LaTeX backslashes, not JSON-escaped backslashes. "
-        "Keep the requested relevance score on its own final line.\n\n"
-        + settings.prompts.summary
+        "Keep the requested relevance score on its own final line, preceded by a blank line.\n\n"
+        "Use only the excerpt. Do not infer what the entire publication does or "
+        "does not contain. For a question about personal notes, a publication "
+        "excerpt alone is not evidence of the owner's opinions. Ignore website "
+        "navigation, advertisements and login prompts. If there is no relevant "
+        "evidence, reply Not applicable.\n\n" + settings.prompts.summary
+    )
+    settings.prompts.qa = (
+        "Use only the supplied evidence, not background knowledge. Distinguish "
+        "personal notes from publication excerpts. Treat source_metadata labels "
+        "as separate from source text: they are application metadata, "
+        "not statements made by the author. All text inside summary_of_this_source "
+        "summarizes the source identified by that metadata; it is not a separate "
+        "accompanying excerpt. For type personal_note, the entire summary describes "
+        "the library owner's note. Do not quote or paraphrase metadata as a claim. "
+        "A note cannot establish what "
+        "the original paper claims or omits. An excerpt's silence is not proof "
+        "of absence from the whole publication. If part of the question lacks "
+        "evidence, explicitly say that the retrieved evidence does not establish "
+        "it; do not fill the gap or pad the answer to meet the requested length.\n\n"
+        + settings.prompts.qa
     )
 
     if (llm := _get_optional_string("llm")) is not None:

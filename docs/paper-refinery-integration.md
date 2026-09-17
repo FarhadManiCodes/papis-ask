@@ -45,6 +45,16 @@ float32 pickle writer. There is no runtime embeddings-sidecar reader or writer.
 Existing pickle indexes are loaded directly; new indexes are built by embedding
 the library through the normal indexing command.
 
+HTML is cleaned conservatively before character chunking: explicit navigation,
+forms and site landmarks are removed, while article headers, tables, references,
+equations and sidebars are preserved. Malformed unclosed navigation falls back
+to the original HTML to avoid discarding article text. Cleaned entries are stamped
+`chunk_source = html` and track chunk-setting changes like text and notes.
+Installing this parser does not invalidate existing HTML entries automatically.
+Applying it to previously indexed HTML requires explicit reindexing; the source
+HTML files are never edited. Unmarked boilerplate and PDF/HTML duplicate content
+can remain, so this is not a general article-extraction or deduplication system.
+
 Metadata records `embedding_model`, `embedded_at`, `chunk_source`, `chunk_chars`,
 and `chunk_overlap`. Metadata-only refreshes preserve these stamps. The model
 identifier includes PaperQA's default when the setting is unset.

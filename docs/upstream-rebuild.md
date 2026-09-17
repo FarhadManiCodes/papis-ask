@@ -93,8 +93,9 @@ Use PaperQA's supported `prompts.use_json = False` summary mode, keeping its
 existing summary instructions and relevance-score extraction. A short prefix
 asks for plain text, literal LaTeX backslashes, and `$...$` / `$$...$$` delimiters.
 This bypasses the defective parser without patching PaperQA or changing models.
-The native plain-text path retains the final scoring line in the summary, as
-well as exposing the extracted score separately. Delimiter compliance remains
+The native plain-text path retains the final scoring line; the output layer now
+hides blank-separated or labelled score trailers and displays the score separately.
+Delimiter compliance remains
 model-dependent; the renderer does not guess equations from arbitrary prose.
 
 This setting controls the internal evidence-summary format, not `--output json`:
@@ -126,3 +127,35 @@ The one-time migration commit was subsequently removed from `personal` history,
 including its helper and six dedicated tests. The current 108-test suite passes
 in both the project and live Papis environments. Runtime code and the existing
 index are unchanged; no re-embedding is needed for this history cleanup.
+
+## Answer-quality follow-up
+
+Grouped citations and exact `chunk N` citations now resolve to Papis references,
+including `(note)` labels. A group containing unknown identifiers or prose is
+left intact rather than partially rewritten. Bibliographies use PaperQA's raw
+citation IDs to list only cited sources and deduplicate identical source/pages;
+all retrieved context summaries remain available for inspection.
+
+The answer model receives explicit note/publication provenance on copies of
+contexts, without changing stored text, embeddings, or citation IDs. Application
+source metadata is kept outside the tagged summary text: a live smoke test showed
+that prose labels could otherwise be mistaken for a separate note or author claim.
+The prompt explicitly identifies the labels as application metadata. Upstream
+still handles ordering and source limits. `evidence-score-cutoff` defaults to 3
+(configurable 0–10), excluding weak evidence from synthesis. With no qualifying
+evidence, PaperQA declines without calling the answer model. Stricter prompts
+discourage unsupported background and whole-publication claims based on notes
+or excerpts. This reduces the observed failures, not a guarantee of correctness.
+
+Invalid output formats, nonpositive counts, and evidence/source count conflicts
+now fail with CLI usage errors before any model call. HTML cleaning is limited
+to explicitly marked site chrome and applies only on future indexing/reindexing.
+The existing live index has not been modified by this follow-up.
+
+Validation: 144 tests pass in the project and live-tool dependency environments.
+Four live questions covered math, cross-paper synthesis, personal notes and an
+unsupported premise (about 6–21 seconds, no API errors). Grouped and note citations
+rendered correctly; the note answer explicitly declined to infer the original
+paper's contents, and the unsupported question stopped at insufficient evidence.
+The index checksum was unchanged. Model output remains probabilistic; these are
+focused regression checks, not a general factual-accuracy benchmark.

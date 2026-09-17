@@ -62,6 +62,43 @@ def to_latex_math(text: str) -> str:
     )
 
 
+def summary_text(context: Any) -> str:
+    """Hide the plain-text scoring trailer, not numbers inside the evidence."""
+    text = context.context
+    # The plain-text prompt requests a final score. Require a blank separator
+    # (or an explicit label), so a final equation/value on one line is safe.
+    score = re.escape(str(context.score))
+    return re.sub(
+        rf"(?:\n[ \t]*\n[ \t]*{score}|\n[ \t]*Score:\s*{score})[ \t\r\n]*$",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+
+def unique_references(contexts: Any) -> list[Any]:
+    """Deduplicate the bibliography only; keep all evidence excerpts available."""
+    seen = set()
+    result = []
+    for context in contexts:
+        key = (format_source(context), str(context.text.doc.file_location))
+        if key not in seen:
+            seen.add(key)
+            result.append(context)
+    return result
+
+
+def cited_references(answer: Any) -> list[Any]:
+    """Use PaperQA's original citation IDs, before they become display labels."""
+    if hasattr(answer, "raw_answer"):
+        from paperqa.utils import get_citation_ids
+
+        cited_ids = set(get_citation_ids(answer.raw_answer))
+        return unique_references(c for c in answer.contexts if c.id in cited_ids)
+    # Support callers constructing a simple answer without PaperQA's raw form.
+    return unique_references(answer.contexts)
+
+
 def transform_answer(answer: Any) -> Any:
     """Transform the answer to format references correctly using Papis references."""
     # Convert to latex math
@@ -73,32 +110,54 @@ def transform_answer(answer: Any) -> Any:
     # First pass: collect all document names and their references and convert to latex math
     for context in answer.contexts:
         context.context = to_latex_math(context.context)
-        papis_id_to_ref[context.text.name.split()[0]] = source_ref(context.text.doc)
+        if context.text.name:
+            papis_id_to_ref[context.text.name.split()[0]] = source_ref(context.text.doc)
 
-    # Replace references in the answer text
-    # Pattern: (papis_id pages X-N) -> [@ref, p. X-N]
+    if not papis_id_to_ref:
+        return answer
+    names = "|".join(
+        re.escape(n) for n in sorted(papis_id_to_ref, key=len, reverse=True)
+    )
+    page_range = r"\d+(?:[-–]\d+)?"
+    item = re.compile(
+        rf"(?P<name>{names})(?P<chunk>\s+chunk\s+\d+)?"
+        rf"(?:\s+pages\s+(?P<pages>{page_range}(?:\s*,\s*{page_range})*))?"
+    )
+    known_chunks = {c.text.name: c for c in answer.contexts}
+
     def replace_citation(match):
-        papis_id = match.group(1)
-        if papis_id not in papis_id_to_ref:
-            # Not a real citation marker -- ordinary parenthesized text, e.g.
-            # math like "u_syn(x)" or "(k+1)", can otherwise match the same
-            # pattern. Only known source docnames are real citations, so
-            # leave anything else untouched instead of mangling it.
+        body = match.group(1).strip()
+        if not body:
             return match.group(0)
+        position = 0
+        references = []
+        while position < len(body):
+            citation = item.match(body, position)
+            if citation is None:
+                return match.group(0)
+            name, pages = citation.group("name", "pages")
+            if citation.group("chunk"):
+                chunk = known_chunks.get(citation.group(0))
+                if chunk is None:
+                    return match.group(0)
+                pages = context_pages(chunk)
+            ref = f"@{papis_id_to_ref[name]}"
+            if pages:
+                ref += f", p. {pages}"
+            references.append(ref)
+            position = citation.end()
+            if position < len(body):
+                separator = re.match(r"\s*[,;]\s*", body[position:])
+                if separator is None:
+                    return match.group(0)
+                position += separator.end()
+                if position == len(body):
+                    return match.group(0)
+        return "[" + "; ".join(dict.fromkeys(references)) + "]"
 
-        pages = match.group(2)
-        ref = papis_id_to_ref[papis_id]
-        # Format pages as p. X-N
-        formatted_pages = f"p. {pages}" if pages else ""
-
-        if formatted_pages:
-            return f"[@{ref}, {formatted_pages}]"
-        else:
-            return f"[@{ref}]"
-
-    # Pattern to match citations like (papis_id pages X-N)
-    citation_pattern = r"\(([^)\s]+?)(?:\s+pages\s+([^)]+))?\)"
-    answer.answer = re.sub(citation_pattern, replace_citation, answer.answer)
+    # Convert only fully recognized groups. Mixed prose/unknown identifiers are
+    # left intact, preserving the ordinary-parentheses guarantee of PR #3.
+    answer.answer = re.sub(r"\(([^()]*)\)", replace_citation, answer.answer)
 
     return answer
 
@@ -149,7 +208,7 @@ def to_terminal_output(
 
     # Create references with colored names
     references = []
-    for answer_context in answer.contexts:
+    for answer_context in cited_references(answer):
         filename = Path(answer_context.text.doc.file_location).name
         reference_line = Text("- ")
         reference_line.append(format_source(answer_context), style="blue")
@@ -158,7 +217,7 @@ def to_terminal_output(
 
     from rich.console import Group
 
-    references_group = Group(*references)
+    references_group = Group(*(references or [Text("No cited sources.")]))
     console.print(
         Panel(
             references_group,
@@ -173,8 +232,8 @@ def to_terminal_output(
             from mathunicode import convert_math_spans
         for answer_context in answer.contexts:
             # Format summary
-            summary = answer_context.context
-            excerpt_text = answer_context.text.text
+            summary = summary_text(answer_context)
+            excerpt_text = to_latex_math(answer_context.text.text)
             if math:
                 summary = convert_math_spans(summary)
                 excerpt_text = convert_math_spans(excerpt_text)
@@ -212,13 +271,13 @@ def to_json_output(answer: Any) -> str:
                 "papis_id": context.text.doc.other.get("papis_id"),
                 "pages": context_pages(context),
             }
-            for context in answer.contexts
+            for context in cited_references(answer)
         ],
         "contexts": [
             {
                 "papis_id": context.text.doc.other.get("papis_id"),
                 "pages": context_pages(context),
-                "summary": context.context,
+                "summary": summary_text(context),
                 "score": context.score,
                 "excerpt": context.text.text,
             }
@@ -276,7 +335,7 @@ def to_markdown_output(
 
     # References section
     markdown.append("## References\n")
-    for answer_context in answer.contexts:
+    for answer_context in cited_references(answer):
         filename = Path(answer_context.text.doc.file_location).name
         markdown.append(f"- [{format_source(answer_context)}] ({filename})")
 
@@ -290,7 +349,7 @@ def to_markdown_output(
             markdown.append(f"## {format_source(answer_context)} ({filename})\n")
 
             # Summary
-            markdown.append(to_latex_math(answer_context.context) + "\n")
+            markdown.append(to_latex_math(summary_text(answer_context)) + "\n")
 
             # Score
             markdown.append(f"**Score:** {answer_context.score}\n")

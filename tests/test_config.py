@@ -7,7 +7,13 @@ from papis_ask import config
 
 @pytest.fixture
 def options(monkeypatch):
-    values = {"chunk-chars": 5000, "overlap": 250, "max-sources": 5, "evidence-k": 10}
+    values = {
+        "chunk-chars": 5000,
+        "overlap": 250,
+        "max-sources": 5,
+        "evidence-k": 10,
+        "evidence-score-cutoff": 3,
+    }
     monkeypatch.setattr(config.papis.config, "getint", lambda key, section: values[key])
     monkeypatch.setattr(
         config.papis.config, "getstring", lambda *args: "about 200 words"
@@ -21,6 +27,22 @@ def test_chunk_defaults(options):
     assert config.get_chunk_params() == (5000, 250)
 
 
+@pytest.mark.parametrize("cutoff", [0, 3, 10])
+def test_evidence_cutoff_is_configurable(options, cutoff):
+    options["evidence-score-cutoff"] = cutoff
+    assert (
+        config.create_paper_qa_settings().answer.evidence_relevance_score_cutoff
+        == cutoff
+    )
+
+
+@pytest.mark.parametrize("cutoff", [-1, 11])
+def test_rejects_invalid_evidence_cutoff(options, cutoff):
+    options["evidence-score-cutoff"] = cutoff
+    with pytest.raises(ValueError, match="evidence-score-cutoff"):
+        config.create_paper_qa_settings()
+
+
 def test_summary_prompt_preserves_math_without_changing_models(options):
     from paperqa import Settings
 
@@ -31,10 +53,13 @@ def test_summary_prompt_preserves_math_without_changing_models(options):
     assert "$...$" in settings.prompts.summary
     assert "not JSON-escaped" in settings.prompts.summary
     assert settings.summary_llm == defaults.summary_llm
-    assert settings.prompts.qa == defaults.prompts.qa
+    assert settings.prompts.qa.endswith(defaults.prompts.qa)
     # Formatting must not interpret equation braces as new prompt variables.
     settings.prompts.summary.format(
-        citation="Example", text="Excerpt", question="Question", summary_length="100 words"
+        citation="Example",
+        text="Excerpt",
+        question="Question",
+        summary_length="100 words",
     )
 
 
