@@ -155,6 +155,20 @@ $ papis ask "My question" --evidence-k 20         # Retrieve 20 pieces of eviden
 $ papis ask "My question" --max-sources 10        # Use up to 10 sources in the answer (default: 5)
 ```
 
+Restrict an answer to part of the library with `--scope`/`-s`, which takes any
+papis query. Papis ANDs the terms inside one query; repeat `-s` to take the
+union of several:
+
+```bash
+$ papis ask "What is the costate?" -s "tags:control-theory"
+$ papis ask "My question" -s "tags:llm-steering" -s "tags:agent-safety"
+$ papis ask "My question" -s "author:zuazua year:2026"
+```
+
+Scoping reuses the stored embeddings of the matching documents (including their
+notes), so it adds no embedding cost. Matching documents that are not indexed
+yet are skipped; if none are indexed, the command stops and says so.
+
 ## Troubleshooting
 
 ### Papis library cache

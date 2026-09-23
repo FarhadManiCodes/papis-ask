@@ -603,6 +603,49 @@ def determine_file_status(
     return needs_indexing, needs_metadata_update
 
 
+def resolve_scope_files(scopes: Tuple[str, ...]) -> Tuple[Set[Path], int]:
+    """Indexable files of every document matching any of *scopes*.
+
+    papis' query language has no OR (every term is ANDed), so several scopes
+    are unioned here instead. Returns the files and the number of distinct
+    matching documents.
+    """
+    from papis.api import get_documents_in_lib
+
+    matched: Dict[str, Any] = {}
+    for scope in scopes:
+        for doc_papis in get_documents_in_lib(search=scope):
+            matched[doc_papis["papis_id"]] = doc_papis
+
+    files = {
+        path
+        for doc_papis in matched.values()
+        for path, _kind in iter_indexable_files(doc_papis)
+    }
+    return files, len(matched)
+
+
+def scope_index(docs_index: Any, files: Set[Path]) -> Any:
+    """A Docs holding only the indexed documents whose file is in *files*.
+
+    Texts keep their stored embeddings, so building the subset's vector store
+    makes no embedding calls; only the question itself is embedded.
+    """
+    from paperqa import Docs
+
+    wanted = {str(path) for path in files}
+    docs = {
+        dockey: doc
+        for dockey, doc in docs_index.docs.items()
+        if str(getattr(doc, "file_location", None)) in wanted
+    }
+    return Docs(
+        docs=docs,
+        texts=[text for text in docs_index.texts if text.doc.dockey in docs],
+        docnames={doc.docname for doc in docs.values()},
+    )
+
+
 @click.group("ask", cls=DefaultGroup, default="query", default_if_no_args=True)
 @click.help_option("-h", "--help")
 def cli():
@@ -658,6 +701,14 @@ def cli():
     help="Render LaTeX math as readable Unicode in terminal output.",
     default=lambda: papis.config.getboolean("render-math", SECTION_NAME),
 )
+@click.option(
+    "--scope",
+    "-s",
+    "scopes",
+    help="Answer only from documents matching this papis query "
+    "(e.g. 'tags:control-theory'). Repeat to combine several queries.",
+    multiple=True,
+)
 def query_cmd(
     query: str,
     output: str,
@@ -667,12 +718,13 @@ def query_cmd(
     context: bool,
     excerpt: bool,
     math: bool,
+    scopes: Tuple[str, ...] = (),
 ) -> None:
     """Ask questions about your library."""
     if evidence_k <= max_sources:
         raise click.UsageError("--evidence-k must be greater than --max-sources")
     logger.debug(
-        f"Starting 'ask' with query={query}, output={output}, evidence_k={evidence_k}, max_sources={max_sources}, answer_length={answer_length}, context={context}, excerpt={excerpt}, math={math} "
+        f"Starting 'ask' with query={query}, output={output}, evidence_k={evidence_k}, max_sources={max_sources}, answer_length={answer_length}, context={context}, excerpt={excerpt}, math={math}, scopes={scopes} "
     )
 
     asyncio.run(
@@ -685,6 +737,7 @@ def query_cmd(
             context,
             excerpt,
             math,
+            scopes,
         )
     )
 
@@ -698,6 +751,7 @@ async def _query_async(
     context: bool,
     excerpt: bool,
     math: bool,
+    scopes: Tuple[str, ...] = (),
 ) -> None:
     """Async implementation of query command."""
     settings = create_paper_qa_settings()
@@ -709,6 +763,26 @@ async def _query_async(
         raise click.UsageError("--evidence-k must be greater than --max-sources")
 
     docs_index = get_index()
+
+    if docs_index and scopes:
+        files, n_matched = resolve_scope_files(scopes)
+        if not n_matched:
+            raise click.UsageError(
+                f"No documents in the library match --scope {' / '.join(scopes)}"
+            )
+        full_count = len(docs_index.docs)
+        docs_index = scope_index(docs_index, files)
+        if not docs_index.docs:
+            raise click.ClickException(
+                f"{n_matched} document(s) match the scope, but none of them "
+                "is indexed yet. Run `papis ask index` first."
+            )
+        logger.info(
+            "Scope: answering from %d of %d indexed file(s) (%d matching document(s))",
+            len(docs_index.docs),
+            full_count,
+            n_matched,
+        )
 
     if docs_index:
         answer = await docs_index.aquery(query, settings=settings)
