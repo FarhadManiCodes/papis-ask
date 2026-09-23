@@ -606,9 +606,8 @@ def determine_file_status(
 def resolve_scope_files(scopes: Tuple[str, ...]) -> Tuple[Set[Path], int]:
     """Indexable files of every document matching any of *scopes*.
 
-    papis' query language has no OR (every term is ANDed), so several scopes
-    are unioned here instead. Returns the files and the number of distinct
-    matching documents.
+    Several scopes are unioned, the same as joining them with papis' own `OR`.
+    Returns the files and the number of distinct matching documents.
     """
     from papis.api import get_documents_in_lib
 
@@ -711,7 +710,7 @@ def cli():
     "-s",
     "scopes",
     help="Answer only from documents matching this papis query "
-    "(e.g. 'tags:control-theory'). Repeat to combine several queries.",
+    "(e.g. 'tags:control-theory'). Repeat to take the union of several.",
     multiple=True,
 )
 def query_cmd(

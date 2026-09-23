@@ -156,12 +156,15 @@ $ papis ask "My question" --max-sources 10        # Use up to 10 sources in the 
 ```
 
 Restrict an answer to part of the library with `--scope`/`-s`, which takes any
-papis query. Papis ANDs the terms inside one query; repeat `-s` to take the
-union of several:
+papis query, including `AND` (also implied between terms), `OR`, `NOT` and
+parentheses. Values match as unanchored, case-insensitive regexes, so `tags:steer`
+matches `llm-steering` and `ref:^X$` is exact. Repeating `-s` is the same as
+joining the queries with `OR`:
 
 ```bash
 $ papis ask "What is the costate?" -s "tags:control-theory"
-$ papis ask "My question" -s "tags:llm-steering" -s "tags:agent-safety"
+$ papis ask "My question" -s "tags:llm-steering OR tags:agent-safety"
+$ papis ask "My question" -s "tags:book AND NOT tags:cpp"
 $ papis ask "My question" -s "author:zuazua year:2026"
 ```
 
