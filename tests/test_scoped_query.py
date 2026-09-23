@@ -165,6 +165,29 @@ def test_cli_passes_repeated_scopes():
     assert query.call_args.args[-1] == ("tags:a", "tags:b")
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope", ["", "   "])
+async def test_blank_scope_is_rejected(query_env, scope):
+    seen, _ = query_env
+    with pytest.raises(click.UsageError, match="non-empty"):
+        await ask((scope,))
+    assert seen == []
+
+
+def test_docs_without_file_location_are_left_out(indexed):
+    """A plain Doc (metadata upgrade never succeeded) has no file_location."""
+    from paperqa.types import Doc
+
+    index, _, paths, _ = indexed
+    index.docs["P"] = Doc(docname="P", dockey="P", citation="P")
+    index.docs["N"] = document("N", paths["B"])
+    index.docs["N"].file_location = None
+
+    scoped = main.scope_index(index, {paths["B"]})
+
+    assert set(scoped.docs) == {"B"}
+
+
 def test_scope_paths_compare_as_strings(indexed):
     """Index file_location is stored as str; library files arrive as Path."""
     index, _, paths, _ = indexed

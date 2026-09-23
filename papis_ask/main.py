@@ -639,6 +639,11 @@ def scope_index(docs_index: Any, files: Set[Path]) -> Any:
         for dockey, doc in docs_index.docs.items()
         if str(getattr(doc, "file_location", None)) in wanted
     }
+    # Unindexed files, and plain Docs whose metadata upgrade never succeeded
+    # (no file_location), are left out, as the indexer itself treats them.
+    found = {str(doc.file_location) for doc in docs.values()}
+    for missing in sorted(wanted - found):
+        logger.debug("Scope: %s matches but is not in the index", missing)
     return Docs(
         docs=docs,
         texts=[text for text in docs_index.texts if text.doc.dockey in docs],
@@ -763,6 +768,11 @@ async def _query_async(
         raise click.UsageError("--evidence-k must be greater than --max-sources")
 
     docs_index = get_index()
+
+    if any(not scope.strip() for scope in scopes):
+        # papis matches every document for a blank query, so `-s "$UNSET"`
+        # would otherwise answer from the whole library without saying so.
+        raise click.UsageError("--scope needs a non-empty papis query")
 
     if docs_index and scopes:
         files, n_matched = resolve_scope_files(scopes)
