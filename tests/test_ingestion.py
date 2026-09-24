@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 from unittest.mock import AsyncMock
 
 import numpy as np
@@ -124,3 +125,42 @@ def test_refinery_notes_reindex_and_retrieval(tmp_path, tmp_config, monkeypatch)
         )
     )
     assert {t.doc.other["chunk_source"] for t in matches} == {"refinery", "note"}
+
+    # Re-running refinery rewrites chunks.json (newer mtime, new envelope field) with the
+    # same chunks: re-embedding it would be paid for nothing (2026-09-24).
+    from papis_ask.refinery import chunks_digest
+
+    paper_doc = next(d for d in docs.docs.values() if d.other["chunk_source"] == "refinery")
+    stored = paper_doc.other["chunks_digest"]
+    assert stored == chunks_digest(json.loads(manifest.read_text()))
+    rewritten = json.loads(manifest.read_text()) | {"parser": "refinery 0.3.13"}
+    manifest.write_text(json.dumps(rewritten))
+    later = paper_doc.other["file_last_indexed"] + 60
+    os.utime(manifest, (later, later))
+    calls = embeddings.calls  # retrieval above embedded the query
+    clients = iter([object(), object()])
+    result = runner.invoke(main.cli, ["index"])
+    assert result.exit_code == 0, result.output + repr(result.exception)
+    assert embeddings.calls == calls
+
+    # An index from before digests: the next run records it from the chunks that were
+    # embedded, through the metadata refresh -- no embedding call.
+    docs = main.get_index()
+    key = next(k for k, d in docs.docs.items() if d.other["chunk_source"] == "refinery")
+    del docs.docs[key].other["chunks_digest"]
+    main.save_index(docs)
+    earlier = docs.docs[key].other["file_last_indexed"] - 60
+    os.utime(manifest, (earlier, earlier))
+    os.utime(pdf, (earlier - 10, earlier - 10))
+    clients = iter(
+        [
+            type("Local", (), {"query": staticmethod(metadata_query)})(),
+            type(
+                "Remote", (), {"query": AsyncMock(side_effect=RuntimeError("offline"))}
+            )(),
+        ]
+    )
+    result = runner.invoke(main.cli, ["index"])
+    assert result.exit_code == 0, result.output + repr(result.exception)
+    assert embeddings.calls == calls
+    assert main.get_index().docs[key].other["chunks_digest"] == stored

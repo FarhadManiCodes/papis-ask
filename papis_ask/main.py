@@ -561,10 +561,15 @@ def _backfill_chunks_digest(file_path: Path, other: Dict[str, Any]) -> Optional[
     chunks_path = chunks_json_path(file_path)
     if chunks_path is None or not chunks_path.exists():
         return None
-    if get_last_modified(chunks_path) > other.get("file_last_indexed", 0):
+    indexed = other.get("file_last_indexed", 0)
+    before = get_last_modified(chunks_path)
+    if before > indexed:
         return None
     payload = read_refinery_chunks(file_path)
-    return chunks_digest(payload) if payload is not None else None
+    # re-check: a refinery run rewriting the file mid-read must not be recorded as embedded
+    if payload is None or get_last_modified(chunks_path) != before:
+        return None
+    return chunks_digest(payload)
 
 
 def determine_file_status(
@@ -626,7 +631,7 @@ def determine_file_status(
     ):
         payload = read_refinery_chunks(file_path)
         if payload is not None and chunks_digest(payload) == stored_digest:
-            logger.info("%s: chunks unchanged; not re-embedding.", file_path)
+            logger.debug("%s: chunks unchanged; not re-embedding.", file_path)
             needs_indexing = False
 
     # Vectors are only comparable to other vectors from the same model, so a
@@ -684,9 +689,7 @@ def determine_file_status(
         other.get("chunk_source") == "refinery"
         and not stored_digest
         and not needs_indexing
-        and chunks_path is not None
-        and chunks_path.exists()
-        and chunks_last_modified <= file_last_indexed
+        and _backfill_chunks_digest(file_path, other) is not None
     ):
         needs_metadata_update = True
 

@@ -200,3 +200,23 @@ class TestChunksRewritten:
     def test_an_undigested_paper_with_newer_chunks_falls_back_to_the_mtime(self, paper):
         _rewrite_chunks(paper, "x")
         assert status(paper, chunks_digest=None)[0] is True
+
+    def test_an_identical_rewrite_still_reembeds_for_a_new_model(self, paper):
+        _rewrite_chunks(paper, "x")
+        assert status(paper, embedding_model="old/model")[0] is True
+
+    def test_an_identical_rewrite_with_new_metadata_only_refreshes_it(self, paper):
+        _rewrite_chunks(paper, "x")
+        assert status(paper, metadata_last_updated=0) == (False, True)
+
+    def test_an_unreadable_manifest_does_not_trigger_a_backfill_every_run(self, paper):
+        chunks_json_path(paper.pdf).write_text("{not json")
+        older = paper.indexed_at - 10
+        os.utime(chunks_json_path(paper.pdf), (older, older))
+        assert status(paper, chunks_digest=None) == (False, False)
+
+
+def test_the_digest_covers_chunk_indexes_for_chunks_without_pages():
+    one = {"chunks": [{"text": "x", "index": 0}]}
+    renumbered = {"chunks": [{"text": "x", "index": 1}]}
+    assert chunks_digest(one) != chunks_digest(renumbered)
