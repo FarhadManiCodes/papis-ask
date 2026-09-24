@@ -146,4 +146,15 @@ def test_failed_atomic_replace_preserves_previous_pickle(tmp_path, monkeypatch):
     with pytest.raises(OSError):
         main.save_index(Docs())
     assert target.read_bytes() == previous
-    assert not target.with_name("index.qa.tmp").exists()
+    assert not list(target.parent.glob("index.qa.*.tmp"))
+
+
+def test_save_keeps_permissions_and_cleans_up_on_interrupt(tmp_path, monkeypatch):
+    target = tmp_path / "index.qa"
+    monkeypatch.setattr(main, "get_index_file", lambda: target)
+    main.save_index(Docs())
+    assert target.stat().st_mode & 0o777 == 0o644
+    monkeypatch.setattr(main.pickle, "dump", lambda *a, **k: (_ for _ in ()).throw(KeyboardInterrupt))
+    with pytest.raises(KeyboardInterrupt):
+        main.save_index(Docs())
+    assert not list(tmp_path.glob("index.qa.*.tmp"))

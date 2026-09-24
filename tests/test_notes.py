@@ -137,8 +137,8 @@ def test_note_chunks_are_labelled_with_the_papers_ref():
     docname_before = index.docs["n1"].docname
     assert main._relabel_indexed_notes(index) == 2
     assert [t.name for t in index.texts] == [
-        "Kalman_1960 note chunk 1",
-        "Kalman_1960 note chunk 2",
+        "Kalman_1960-note",
+        "Kalman_1960-note",
         "Kalman_1960 pages 5",
     ]
     assert index.docs["n1"].docname == docname_before  # identity untouched

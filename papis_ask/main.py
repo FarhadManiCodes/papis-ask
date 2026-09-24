@@ -1,5 +1,6 @@
 import pickle
 import os
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, Iterator, Literal, Optional, Set, Tuple
@@ -431,16 +432,20 @@ def get_index():
 
 
 def label_note_chunks(texts: Any, docname: str, ref: str) -> int:
-    """Name note chunks after the paper's ref ("Kalman_1960 note chunk 1").
+    """Label every chunk of a note with its paper's ref ("Kalman_1960-note").
 
     PaperQA names chunks after the docname, and a note's docname is `<papis_id>-note`
     (unique beside its paper's), so answers cited notes as an opaque id. Only the label
-    changes: the docname, and so deduplication and removal, stay as they were.
+    changes: the docname, and so deduplication and removal, stay as they were. The label
+    is one token on purpose: `output.transform_answer` keys sources by a chunk name's
+    first word, so "Kalman_1960 note ..." would collide with the paper's own chunks. No
+    chunk number either: it means nothing to the note's author, and PaperQA maps
+    citations by context id, not by name, so a note's chunks may share one label.
     """
-    renamed = 0
+    label, renamed = f"{ref}-note", 0
     for text in texts:
-        if text.name.startswith(docname):
-            text.name = f"{ref} note" + text.name[len(docname) :]
+        if text.name.startswith(docname) and text.name != label:
+            text.name = label
             renamed += 1
     return renamed
 
@@ -499,15 +504,22 @@ def save_index(docs):
     """Save the paperqa index to disk (atomically)."""
     _embeddings_to_float32(docs)
     target = get_index_file()
-    tmp = target.with_name(target.name + ".tmp")
+    # A unique temp file per save: two processes saving at once (an indexer, and a
+    # query whose load migrated the index) must not truncate each other's file.
+    fd, name = tempfile.mkstemp(
+        dir=target.parent, prefix=target.name + ".", suffix=".tmp"
+    )
+    tmp = Path(name)
     try:
-        with open(tmp, "wb") as f:
+        with os.fdopen(fd, "wb") as f:
             pickle.dump(docs, f)
             f.flush()
             os.fsync(f.fileno())
+        # mkstemp creates 0600; keep the index's usual permissions
+        os.chmod(tmp, target.stat().st_mode & 0o777 if target.exists() else 0o644)
         os.replace(tmp, target)
-    except OSError as e:
-        logger.error(f"Failed to save index: {e}")
+    except BaseException as e:  # incl. Ctrl-C: never leave an ~80 MB temp behind
+        logger.error(f"Failed to save index: {e!r}")
         tmp.unlink(missing_ok=True)
         raise
 

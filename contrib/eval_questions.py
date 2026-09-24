@@ -22,6 +22,7 @@ question (one summary per evidence chunk, one answer).
 
 import argparse
 import json
+import shlex
 import subprocess
 import time
 from collections import defaultdict
@@ -31,7 +32,9 @@ HERE = Path(__file__).resolve().parent
 SECRETS = Path("~/.config/secrets/papis.env").expanduser()
 
 
-def _ask(papis: list[str], config: Path | None, item: dict) -> tuple[dict | None, float, str]:
+def _ask(
+    papis: list[str], config: Path | None, item: dict
+) -> tuple[dict | None, float, str]:
     cmd = papis + (["--config", str(config)] if config else [])
     cmd += ["ask", "query", "-o", "json"]
     if item.get("scope"):
@@ -88,7 +91,7 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     questions = json.loads(args.questions.read_text())
     refs = _refs_by_id()
-    papis = args.papis_cmd.split()
+    papis = shlex.split(args.papis_cmd)
     # interleaved per question, so an index that changes during the run affects both alike
     for n, item in enumerate(questions, 1):
         for label, config in (("a", args.config_a), ("b", args.config_b)):
