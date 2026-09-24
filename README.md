@@ -108,6 +108,8 @@ Papis-ask assumes various things about the state of your library: it assumes tha
 
 You might want to use the `ocrpdf.py` script to fix all PDFs that are missing embedded texts or whose embedded text is garbage. The script inspects the text of every page, and OCRs the files it classifies as broken (with backups under `ocr_backups/`). Use `--dry-run` to only report problematic PDFs without modifying them. Do check the results -- by comparing the backups with the newly created PDFs -- as PDFs can be broken in old sorts of unique ways that the scripts may not handle correctly.
 
+To compare models before changing `[ask] llm` or `summary-llm`, `contrib/eval_questions.py` answers the fixed question set in `contrib/eval_questions.json` with two papis configs against the same index, saves both sets of answers, and summarises evidence scores and cited pages per question. It makes paid calls; judging faithfulness still means reading the answers against the cited pages.
+
 The `editor-author-list.py` and `fix-months.sh` scripts help fix the metadata in your `info.yaml` files. The first creates `author_list` and `editor_list` fields from `author` and `editor` fields, respectively. The second converts the `month` fields to an integer. Additionally, I suggest to use `papis doctor` to make sure the library doesn't contain any errors. Files will be indexed even if metadata is missing or false, but such mistakes might impact response quality.
 
 ## Commands

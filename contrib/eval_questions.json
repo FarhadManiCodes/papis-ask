@@ -1,0 +1,8 @@
+[
+  {"scope": "tags:llm-steering", "question": "How do these papers frame activation steering as a control or feedback problem, and what does the controller act on?"},
+  {"scope": "tags:control-theory", "question": "What assumptions does Kalman's 1960 filter make about the noise and the system, and what does my note on the paper add?"},
+  {"scope": "ref:^Kleppmann_2026$", "question": "What are the trade-offs between synchronous and asynchronous followers in leader-based replication?"},
+  {"scope": "tags:cpp", "question": "When should std::move be used versus std::forward, and why does it matter?"},
+  {"scope": null, "question": "How can control theory be used to make LLM agents safer?"},
+  {"scope": "ref:^Nocedal_2006$", "question": "What are the Wolfe conditions, and why does a line search method use them?"}
+]
