@@ -16,7 +16,7 @@ import pytest
 
 import papis_ask.config as config
 from papis_ask.main import determine_file_status
-from papis_ask.refinery import chunks_json_path
+from papis_ask.refinery import chunks_digest, chunks_json_path
 
 MODEL = "gemini/gemini-embedding-2"
 CHUNKING = (5000, 250)
@@ -36,13 +36,14 @@ def paper(tmp_path):
     pdf.write_bytes(b"%PDF-1.4")
     info = tmp_path / "info.yaml"
     info.write_text("ref: Kalman_1960\n")
-    chunks_json_path(pdf).write_text(
-        json.dumps({"chunks": [{"text": "x", "index": 0}]})
-    )
+    manifest = {"chunks": [{"text": "x", "index": 0}]}
+    chunks_json_path(pdf).write_text(json.dumps(manifest))
 
     # Index entry recorded well after every file was written.
     indexed_at = pdf.stat().st_mtime + 1000
-    return SimpleNamespace(pdf=pdf, info=info, indexed_at=indexed_at)
+    return SimpleNamespace(
+        pdf=pdf, info=info, indexed_at=indexed_at, digest=chunks_digest(manifest)
+    )
 
 
 def status(paper, **other):
@@ -54,6 +55,7 @@ def status(paper, **other):
         "chunk_source": "refinery",
         "chunk_chars": None,
         "chunk_overlap": None,
+        "chunks_digest": paper.digest,
     }
     stamp.update(other)
     doc = SimpleNamespace(other=stamp)
@@ -78,8 +80,7 @@ class TestFilesChanged:
     def test_regenerated_chunks_are_reindexed(self, paper):
         """Refinery can rewrite chunks.json (e.g. re-running after an OCR cache
         repair) without touching the PDF's mtime at all."""
-        newer = paper.indexed_at + 100
-        os.utime(chunks_json_path(paper.pdf), (newer, newer))
+        _rewrite_chunks(paper, "regenerated text")
         assert status(paper) == (True, False)
 
     def test_edited_info_yaml_updates_metadata_without_reembedding(self, paper):
@@ -165,3 +166,37 @@ class TestNotInTheIndex:
         assert determine_file_status(
             paper.pdf, paper.info, {str(paper.pdf): "GONE"}, docs_index
         ) == (True, False)
+
+
+def _rewrite_chunks(paper, text):
+    """Refinery re-run: chunks.json rewritten, newer than the index entry."""
+    path = chunks_json_path(paper.pdf)
+    path.write_text(json.dumps({"chunks": [{"text": text, "index": 0}], "parser": "v2"}))
+    newer = paper.indexed_at + 10
+    os.utime(path, (newer, newer))
+
+
+class TestChunksRewritten:
+    """Re-embedding is the paid part: a rewrite with identical chunks must not trigger it."""
+
+    def test_identical_chunks_are_not_reembedded(self, paper):
+        _rewrite_chunks(paper, "x")  # same text, different envelope, newer mtime
+        assert status(paper) == (False, False)
+
+    def test_changed_chunks_are_reembedded(self, paper):
+        _rewrite_chunks(paper, "y")
+        assert status(paper)[0] is True
+
+    def test_a_newer_pdf_is_reembedded_whatever_the_chunks(self, paper):
+        newer = paper.indexed_at + 10
+        os.utime(paper.pdf, (newer, newer))
+        assert status(paper)[0] is True
+
+    def test_an_undigested_paper_is_backfilled_by_a_metadata_update(self, paper):
+        # indexed before digests were recorded, chunks unchanged since: no embedding,
+        # one metadata refresh that records the digest
+        assert status(paper, chunks_digest=None) == (False, True)
+
+    def test_an_undigested_paper_with_newer_chunks_falls_back_to_the_mtime(self, paper):
+        _rewrite_chunks(paper, "x")
+        assert status(paper, chunks_digest=None)[0] is True

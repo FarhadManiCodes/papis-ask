@@ -6,6 +6,7 @@ reads the JSON manifest it leaves next to the PDF. See
 docs/paper-refinery-integration.md for the full contract.
 """
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -51,6 +52,18 @@ def chunk_name(
     if page_start == page_end:
         return f"{docname} pages {page_start}"
     return f"{docname} pages {page_start}-{page_end}"
+
+
+def chunks_digest(payload: Dict[str, Any]) -> str:
+    """Fingerprint of what gets embedded from a manifest: each chunk's text and page
+    range. Re-running refinery rewrites chunks.json (a newer mtime) even when these come
+    out identical; comparing this instead of the mtime avoids paying to re-embed them."""
+    digest = hashlib.sha256()
+    for chunk in payload.get("chunks") or []:
+        for part in (chunk.get("text") or "", chunk.get("page_start"), chunk.get("page_end")):
+            digest.update(str(part).encode())
+            digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def read_refinery_chunks(file_path: Path) -> Optional[Dict[str, Any]]:

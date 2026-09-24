@@ -33,6 +33,7 @@ class LocalDocQuery(ClientQuery):
     chunk_source: Optional[str] = None
     chunk_chars: Optional[int] = None
     chunk_overlap: Optional[int] = None
+    chunks_digest: Optional[str] = None
     fields: Optional[List[str]] = None
 
 
@@ -46,6 +47,7 @@ async def parse_papis_to_doc_details(
     chunk_source: Optional[str] = None,
     chunk_chars: Optional[int] = None,
     chunk_overlap: Optional[int] = None,
+    chunks_digest: Optional[str] = None,
 ) -> DocDetails:
     """Convert Papis document metadata to DocDetails format."""
 
@@ -103,6 +105,7 @@ async def parse_papis_to_doc_details(
             "chunk_source": chunk_source,
             "chunk_chars": chunk_chars,
             "chunk_overlap": chunk_overlap,
+            "chunks_digest": chunks_digest,
         }
     ).items():
         if key not in DocDetails.model_fields:
@@ -124,6 +127,7 @@ async def get_doc_details_from_papis(
     chunk_source: Optional[str] = None,
     chunk_chars: Optional[int] = None,
     chunk_overlap: Optional[int] = None,
+    chunks_digest: Optional[str] = None,
     fields: Optional[List[str]] = None,
     docs_by_id: Optional[Dict[str, Any]] = None,
 ) -> Optional[DocDetails]:
@@ -154,6 +158,7 @@ async def get_doc_details_from_papis(
             chunk_source=chunk_source,
             chunk_chars=chunk_chars,
             chunk_overlap=chunk_overlap,
+            chunks_digest=chunks_digest,
         )
 
     except Exception as e:
@@ -185,6 +190,7 @@ class PapisProvider(MetadataProvider[LocalDocQuery]):
             chunk_source=query.chunk_source,
             chunk_chars=query.chunk_chars,
             chunk_overlap=query.chunk_overlap,
+            chunks_digest=query.chunks_digest,
             docs_by_id=self.__class__._docs_by_id,
         )
 

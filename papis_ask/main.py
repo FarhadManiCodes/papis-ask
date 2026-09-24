@@ -125,9 +125,10 @@ async def add_file_to_index(
     its chunks are stale, or `use_refinery` is False.
     """
     from paperqa.utils import md5sum
-    from papis_ask.refinery import chunk_name, read_refinery_chunks
+    from papis_ask.refinery import chunk_name, chunks_digest, read_refinery_chunks
 
     dockey = md5sum(file_path)
+    digest: Optional[str] = None  # set only for refinery chunks
 
     ref, papis_id, _ = extract_doc_papis_metadata(doc_papis)
 
@@ -228,6 +229,7 @@ async def add_file_to_index(
             # shared name was already removed by the first doc's removal).
             docname = doc.docname if added else None
             chunk_source = "refinery"
+            digest = chunks_digest(chunks_payload)
         else:
             if not use_refinery or file_path.suffix.lower() != ".pdf":
                 # Either the caller opted out, or this isn't a PDF -- refinery
@@ -282,6 +284,7 @@ async def add_file_to_index(
                 chunk_source=chunk_source,
                 chunk_chars=chunk_chars,
                 chunk_overlap=chunk_overlap,
+                chunks_digest=digest,
             ):
                 return ref
             else:
@@ -317,6 +320,7 @@ async def update_index_metadata(
     chunk_source: Optional[str] = None,
     chunk_chars: Optional[int] = None,
     chunk_overlap: Optional[int] = None,
+    chunks_digest: Optional[str] = None,
 ) -> Optional[str]:
     """Update metadata for a file in the paperqa index.
 
@@ -342,6 +346,7 @@ async def update_index_metadata(
         chunk_source=chunk_source,
         chunk_chars=chunk_chars,
         chunk_overlap=chunk_overlap,
+        chunks_digest=chunks_digest,
     ):
         query_args = {
             "settings": settings,
@@ -545,6 +550,23 @@ def extract_doc_papis_metadata(
     return ref, papis_id, doi
 
 
+def _backfill_chunks_digest(file_path: Path, other: Dict[str, Any]) -> Optional[str]:
+    """The digest of a refinery-chunked paper indexed before digests were recorded,
+    taken from its chunks.json -- only while that file is no newer than the indexing,
+    so it is exactly what was embedded."""
+    from papis_ask.refinery import chunks_digest, chunks_json_path, read_refinery_chunks
+
+    if other.get("chunk_source") != "refinery":
+        return None
+    chunks_path = chunks_json_path(file_path)
+    if chunks_path is None or not chunks_path.exists():
+        return None
+    if get_last_modified(chunks_path) > other.get("file_last_indexed", 0):
+        return None
+    payload = read_refinery_chunks(file_path)
+    return chunks_digest(payload) if payload is not None else None
+
+
 def determine_file_status(
     file_path: Path,
     info_yaml_path: Path,
@@ -553,7 +575,7 @@ def determine_file_status(
 ) -> Tuple[bool, bool]:
     """Determine if a file needs to be re-indexed or just have its metadata updated."""
     from papis_ask.config import get_chunk_params, get_embedding_model
-    from papis_ask.refinery import chunks_json_path
+    from papis_ask.refinery import chunks_digest, chunks_json_path, read_refinery_chunks
 
     dockey = index_files_to_dockey.get(str(file_path))
 
@@ -591,6 +613,21 @@ def determine_file_status(
         file_last_modified > file_last_indexed
         or chunks_last_modified > file_last_indexed
     )
+
+    # Re-running refinery rewrites chunks.json -- a newer mtime -- even when the chunks
+    # come out identical (it did, for most of the library, on 2026-09-24). Only the
+    # chunks' content decides whether re-embedding (the paid part) is needed.
+    stored_digest = other.get("chunks_digest")
+    if (
+        needs_indexing
+        and file_last_modified <= file_last_indexed
+        and other.get("chunk_source") == "refinery"
+        and stored_digest
+    ):
+        payload = read_refinery_chunks(file_path)
+        if payload is not None and chunks_digest(payload) == stored_digest:
+            logger.info("%s: chunks unchanged; not re-embedding.", file_path)
+            needs_indexing = False
 
     # Vectors are only comparable to other vectors from the same model, so a
     # change to `ask.embedding` invalidates everything embedded under the old
@@ -641,6 +678,17 @@ def determine_file_status(
 
     # Check if metadata has changed since last update
     needs_metadata_update = info_yaml_last_modified > metadata_last_updated
+    # Indexed before digests were recorded: record it now, from the chunks that were
+    # embedded (unchanged since), so the next rewrite can be recognised -- no embedding.
+    if (
+        other.get("chunk_source") == "refinery"
+        and not stored_digest
+        and not needs_indexing
+        and chunks_path is not None
+        and chunks_path.exists()
+        and chunks_last_modified <= file_last_indexed
+    ):
+        needs_metadata_update = True
 
     # If we need to re-index, we don't need to separately update metadata
     if needs_indexing:
@@ -1092,6 +1140,9 @@ async def _index_async(
                 chunk_source = other.get("chunk_source")
                 chunk_chars = other.get("chunk_chars")
                 chunk_overlap = other.get("chunk_overlap")
+                digest = other.get("chunks_digest") or _backfill_chunks_digest(
+                    file_path, other
+                )
 
                 if ref := await update_index_metadata(
                     file_path=file_path,
@@ -1107,6 +1158,7 @@ async def _index_async(
                     chunk_source=chunk_source,
                     chunk_chars=chunk_chars,
                     chunk_overlap=chunk_overlap,
+                    chunks_digest=digest,
                 ):
                     logger.info(
                         "%d/%d: Updated metadata for @%s (%s)",
