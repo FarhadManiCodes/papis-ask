@@ -175,6 +175,7 @@ async def add_file_to_index(
                 chunk_chars,
                 chunk_overlap,
             )
+            label_note_chunks(texts, doc.docname, ref or papis_id)
             added = await docs_index.aadd_texts(texts, doc, settings=settings)
             # Same in-place dedupe as the refinery path below.
             docname = doc.docname if added else None
@@ -429,6 +430,36 @@ def get_index():
         raise
 
 
+def label_note_chunks(texts: Any, docname: str, ref: str) -> int:
+    """Name note chunks after the paper's ref ("Kalman_1960 note chunk 1").
+
+    PaperQA names chunks after the docname, and a note's docname is `<papis_id>-note`
+    (unique beside its paper's), so answers cited notes as an opaque id. Only the label
+    changes: the docname, and so deduplication and removal, stay as they were.
+    """
+    renamed = 0
+    for text in texts:
+        if text.name.startswith(docname):
+            text.name = f"{ref} note" + text.name[len(docname) :]
+            renamed += 1
+    return renamed
+
+
+def _relabel_indexed_notes(docs: Any) -> int:
+    """`label_note_chunks` for notes indexed before it existed (no re-embedding)."""
+    by_doc: dict[str, list] = {}
+    for text in docs.texts:
+        doc = text.doc
+        if getattr(doc, "other", {}).get("chunk_source") == "note":
+            by_doc.setdefault(doc.dockey, []).append(text)
+    renamed = 0
+    for texts in by_doc.values():
+        doc = texts[0].doc
+        ref = doc.other.get("ref") or doc.docname.removesuffix("-note")
+        renamed += label_note_chunks(texts, doc.docname, ref)
+    return renamed
+
+
 def _migrate_index(docs: Any) -> bool:
     """Migrate old pickled index objects to be compatible with the current
     paper-qa version. Adds missing fields that didn't exist in older versions.
@@ -437,13 +468,16 @@ def _migrate_index(docs: Any) -> bool:
     """
     from paperqa.types import Text as TextType
 
+    relabelled = _relabel_indexed_notes(docs)
+    if relabelled:
+        logger.info("Relabelled %d note chunk(s) with their paper's ref.", relabelled)
     missing_fields: dict[str, object] = {
         name: field.get_default(call_default_factory=True)
         for name, field in TextType.model_fields.items()
         if not field.is_required() and field.default_factory is not None
     }
     if not missing_fields:
-        return False
+        return relabelled > 0
 
     migrated = 0
     for text in docs.texts:
@@ -457,7 +491,7 @@ def _migrate_index(docs: Any) -> bool:
             "compatibility with paper-qa current.",
             migrated,
         )
-    return migrated > 0
+    return migrated > 0 or relabelled > 0
 
 
 # NOTE: no types because we'd have to globally import Docs

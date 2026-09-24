@@ -99,3 +99,53 @@ def test_ordinary_blockquote_is_kept():
     note = "> my own emphasised line\n\nand a thought\n"
     out = strip_note_markup(note)
     assert "my own emphasised line" in out
+
+
+# ---------------------------------------------------------------------------
+# note chunk labels
+# ---------------------------------------------------------------------------
+
+
+def _note_index():
+    from paperqa import Docs
+    from paperqa.types import DocDetails, Text
+
+    doc = DocDetails(
+        docname="x",
+        dockey="n1",
+        citation="c",
+        other={"chunk_source": "note", "ref": "Kalman_1960"},
+    )
+    doc.docname = "6daaa-note"
+    doc.dockey = "n1"
+    paper = DocDetails(
+        docname="y",
+        dockey="p1",
+        citation="c",
+        other={"chunk_source": "refinery", "ref": "Kalman_1960"},
+    )
+    texts = [Text(text="t", name=f"{doc.docname} chunk {i}", doc=doc) for i in (1, 2)]
+    # DocDetails recomputes docname on assignment; names use whatever it holds
+    texts.append(Text(text="p", name="Kalman_1960 pages 5", doc=paper))
+    return Docs(docs={"n1": doc, "p1": paper}, texts=texts)
+
+
+def test_note_chunks_are_labelled_with_the_papers_ref():
+    from papis_ask import main
+
+    index = _note_index()
+    docname_before = index.docs["n1"].docname
+    assert main._relabel_indexed_notes(index) == 2
+    assert [t.name for t in index.texts] == [
+        "Kalman_1960 note chunk 1",
+        "Kalman_1960 note chunk 2",
+        "Kalman_1960 pages 5",
+    ]
+    assert index.docs["n1"].docname == docname_before  # identity untouched
+    assert main._relabel_indexed_notes(index) == 0  # idempotent
+
+
+def test_migration_reports_a_relabel_so_the_index_is_saved():
+    from papis_ask import main
+
+    assert main._migrate_index(_note_index()) is True
