@@ -20,6 +20,7 @@ def options(monkeypatch):
     )
     monkeypatch.setattr(config, "_get_optional_string", lambda key: None)
     monkeypatch.setattr(config, "_get_optional_bool", lambda key: None)
+    monkeypatch.setattr(config, "_get_optional_float", lambda key: values.get(key))
     return values
 
 
@@ -34,6 +35,19 @@ def test_evidence_cutoff_is_configurable(options, cutoff):
         config.create_paper_qa_settings().answer.evidence_relevance_score_cutoff
         == cutoff
     )
+
+
+def test_mmr_lambda_defaults_to_paperqa_and_is_configurable(options):
+    assert config.create_paper_qa_settings().texts_index_mmr_lambda == 1.0
+    options["mmr-lambda"] = 0.9
+    assert config.create_paper_qa_settings().texts_index_mmr_lambda == 0.9
+
+
+@pytest.mark.parametrize("value", [-0.1, 1.5])
+def test_rejects_invalid_mmr_lambda(options, value):
+    options["mmr-lambda"] = value
+    with pytest.raises(ValueError, match="mmr-lambda"):
+        config.create_paper_qa_settings()
 
 
 @pytest.mark.parametrize("cutoff", [-1, 11])

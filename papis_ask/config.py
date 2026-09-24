@@ -39,6 +39,14 @@ def _get_optional_bool(key: str) -> bool | None:
         return None
 
 
+def _get_optional_float(key: str) -> float | None:
+    """Get a float config value, returning None if not set."""
+    try:
+        return papis.config.getfloat(key, SECTION_NAME)
+    except DefaultSettingValueMissing:
+        return None
+
+
 def get_embedding_model() -> str:
     """Effective embedding model, including PaperQA defaults when unset."""
     from paperqa import Settings
@@ -115,6 +123,13 @@ def create_paper_qa_settings():
         settings.answer.answer_max_sources = max_sources
     if (evidence_k := papis.config.getint("evidence-k", SECTION_NAME)) is not None:
         settings.answer.evidence_k = evidence_k
+    # Maximal marginal relevance for evidence retrieval: 1.0 (PaperQA's default) ranks by
+    # similarity alone, so a long book can fill every evidence slot with near-duplicate
+    # chunks; lower values trade some similarity for diversity.
+    if (mmr_lambda := _get_optional_float("mmr-lambda")) is not None:
+        if not 0 <= mmr_lambda <= 1:
+            raise ValueError("ask-mmr-lambda must be between 0 and 1")
+        settings.texts_index_mmr_lambda = mmr_lambda
     settings.answer.answer_length = papis.config.getstring(
         "answer-length", SECTION_NAME
     )
