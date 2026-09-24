@@ -86,6 +86,42 @@ def test_json_keeps_original_answer():
     assert result["answer"] == text
 
 
+def test_json_sources_say_whether_they_are_a_note_or_the_publication():
+    answer = make_answer("Stable (abc123 pages 6).")
+    note = SimpleNamespace(
+        text=SimpleNamespace(
+            name="Kalman_1960-note",
+            doc=SimpleNamespace(
+                other={
+                    "ref": "Kalman_1960",
+                    "papis_id": "abc123",
+                    "chunk_source": "note",
+                },
+                pages=None,
+                file_location="/library/notes.md",
+            ),
+            text="My note",
+        ),
+        context="Note summary",
+        score=7,
+    )
+    answer.contexts.append(note)
+    result = json.loads(to_json_output(answer))
+    expected = {("Kalman_1960", "publication"), ("Kalman_1960", "personal_note")}
+    assert {(c["ref"], c["source_type"]) for c in result["contexts"]} == expected
+    assert {(r["ref"], r["source_type"]) for r in result["references"]} == expected
+    assert set(result["references"][0]) == {"papis_id", "ref", "source_type", "pages"}
+    assert set(result["contexts"][0]) == {
+        "papis_id",
+        "ref",
+        "source_type",
+        "pages",
+        "summary",
+        "score",
+        "excerpt",
+    }
+
+
 def math_answer():
     answer = make_answer(r"Use $\nabla \cdot \mathbf{a}$.")
     answer.contexts[0].context = r"Summary: $\oint_C a_1 ds = \iint_A a_{2,1} dA$."

@@ -261,22 +261,29 @@ def to_terminal_output(
             )
 
 
+def _source_fields(context: Any) -> dict:
+    """Which source a context came from. `source_type` keeps a note apart from its
+    paper, which share `papis_id` and `ref`."""
+    other = context.text.doc.other
+    return {
+        "papis_id": other.get("papis_id"),
+        "ref": other.get("ref"),
+        "source_type": (
+            "personal_note" if other.get("chunk_source") == "note" else "publication"
+        ),
+        "pages": context_pages(context),
+    }
+
+
 def to_json_output(answer: Any) -> str:
     """Convert the answer object to a JSON-serializable dictionary."""
     output = {
         "question": answer.question,
         "answer": answer.answer,
-        "references": [
-            {
-                "papis_id": context.text.doc.other.get("papis_id"),
-                "pages": context_pages(context),
-            }
-            for context in cited_references(answer)
-        ],
+        "references": [_source_fields(context) for context in cited_references(answer)],
         "contexts": [
             {
-                "papis_id": context.text.doc.other.get("papis_id"),
-                "pages": context_pages(context),
+                **_source_fields(context),
                 "summary": summary_text(context),
                 "score": context.score,
                 "excerpt": context.text.text,
