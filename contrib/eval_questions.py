@@ -31,8 +31,8 @@ HERE = Path(__file__).resolve().parent
 SECRETS = Path("~/.config/secrets/papis.env").expanduser()
 
 
-def _ask(config: Path | None, item: dict) -> tuple[dict | None, float, str]:
-    cmd = ["papis"] + (["--config", str(config)] if config else [])
+def _ask(papis: list[str], config: Path | None, item: dict) -> tuple[dict | None, float, str]:
+    cmd = papis + (["--config", str(config)] if config else [])
     cmd += ["ask", "query", "-o", "json"]
     if item.get("scope"):
         cmd += ["-s", item["scope"]]
@@ -75,6 +75,12 @@ def main() -> None:
     parser.add_argument("--config-b", type=Path, required=True)
     parser.add_argument("--questions", type=Path, default=HERE / "eval_questions.json")
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument(
+        "--papis-cmd",
+        default="papis",
+        help="command to run papis, e.g. '.venv/bin/python -m papis' from a worktree to test "
+        "its code without touching the live install",
+    )
     args = parser.parse_args()
     if not SECRETS.is_file():
         parser.error(f"{SECRETS} not found: every query would fail without the API keys")
@@ -82,9 +88,11 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     questions = json.loads(args.questions.read_text())
     refs = _refs_by_id()
-    for label, config in (("a", args.config_a), ("b", args.config_b)):
-        for n, item in enumerate(questions, 1):
-            answer, elapsed, stderr = _ask(config, item)
+    papis = args.papis_cmd.split()
+    # interleaved per question, so an index that changes during the run affects both alike
+    for n, item in enumerate(questions, 1):
+        for label, config in (("a", args.config_a), ("b", args.config_b)):
+            answer, elapsed, stderr = _ask(papis, config, item)
             if answer is None:
                 print(f"{label} q{n}: FAILED after {elapsed:.0f}s\n{stderr[-600:]}")
                 continue
