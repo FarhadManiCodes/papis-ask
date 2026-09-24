@@ -55,9 +55,10 @@ def chunk_name(
 
 
 def chunks_digest(payload: Dict[str, Any]) -> str:
-    """Fingerprint of what the index takes from a manifest: each chunk's text, page
-    range and index (the index names a chunk without pages). Re-running refinery rewrites chunks.json (a newer mtime) even when these come
-    out identical; comparing this instead of the mtime avoids paying to re-embed them."""
+    """Fingerprint of what the index takes from a manifest: each chunk's text, page range
+    and index (the index names a chunk without pages). Re-running refinery rewrites
+    chunks.json (a newer mtime) even when these come out identical; comparing this
+    instead of the mtime avoids paying to re-embed them."""
     parts = [
         [c.get("text") or "", c.get("page_start"), c.get("page_end"), c.get("index")]
         for c in payload.get("chunks") or []
